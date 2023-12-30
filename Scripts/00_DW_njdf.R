@@ -11,27 +11,11 @@ library(chron)
 library(lutz)
 library(suncalc)
 library(stringi)
-
-library(lme4)
-library(lmerTest)
-library(ggpubr)
-library(viridis)
-library(sp)
-library(sf)
+library(zoo)
 library(geosphere)
-library(gtools)
-library(cowplot)
-library(AICcmodavg)
-library(MuMIn)
-library(gridExtra)
-library(lmtest)
-library(nlme)
-library(ggrepel)
-#library(conflicted)
 select <- dplyr::select
-ggplot2::theme_set(theme_cowplot())
 
-#load(paste0(bs, "Desktop/Grad_School/R_Files/MS/BergAnalysis7.27.22.Rdata"))
+load("Data/njdf_script.Rdata")
 
 # Load and format data ----------------------------------------------------
 #load(paste0(bs,"Desktop/Grad_School/MS/EWPW/Data_Whips/Analysis/R_Files/spdf.all.tr.Rdata"))
@@ -63,14 +47,12 @@ AKnames <- names(AKewpw)[1:29]
 data.frame(AKnames, cols, AKnames == cols)
 
 #Greg Various data sets
-table(VariousGC$Project)
 Various <- VariousGC %>% mutate(Year = sapply(str_split(Banding.Date, "/"), function(x){x[3]}), 
                                 Project = paste0("Greg_", Project),
                                 Banding.Date = as.character(dmy(Banding.Date))) %>% 
   select(1,30, 2:29)
 
 #Merge Elly's data to create a single data frame 
-#EKconi2 <- smartbind(EKconiFAC, EKconiBr)
 EKconiFAC <- EKconiFAC %>% filter(Wint.Loc == 1)
 EKconiFAC$uniq.ID <- with(EKconiFAC, paste0(BandNumber, "_", TagID))
 EKconiBr$uniq.ID <- with(EKconiBr, paste0(BandNumber, "_", TagID))
@@ -152,7 +134,8 @@ capri.df$Year <- str_pad(capri.df$Year, 4, pad = "2")
 #CHECK::Ensure that this worked
 capri.df %>% select(Project, Year) %>% 
   mutate(ncharYr = nchar(as.character(Year))) %>% 
-  arrange(ncharYr, desc(Year))
+  arrange(ncharYr, desc(Year)) %>% 
+  slice_head(n = 10)
 
 #Format times & dates, data types#
 capri.df[,c("Wing.Chord","Mass","W.Lat", "W.Long", "Mig.dist", "Year")] <- lapply(capri.df[,c("Wing.Chord","Mass","W.Lat", "W.Long", "Mig.dist", "Year")], as.numeric)
@@ -160,7 +143,8 @@ capri.df[c("Banding.Date", "B.dep", "W.arr")] <- lapply(capri.df[c("Banding.Date
 #Create month day (all years = 2023) for understanding timing
 capri.df[,c("Band.md","Bdep.md", "Warr.md")] <- lapply(capri.df[,c("Banding.Date", "B.dep", "W.arr")], format, "%m/%d")
 capri.df[,c("Band.md","Bdep.md", "Warr.md")] <- lapply(capri.df[,c("Band.md","Bdep.md", "Warr.md")], as.Date, "%m/%d")
-capri.df$Warr.md <- as.Date(ifelse(capri.df$Warr.md < as.POSIXct("2023-04-01"), capri.df$Warr.md + lubridate::years(1), capri.df$Warr.md)) 
+capri.df$Warr.md <- zoo::as.Date(ifelse(capri.df$Warr.md < as.POSIXct("2023-04-01"), capri.df$Warr.md + lubridate::years(1), capri.df$Warr.md)) 
+
 
 #CHECK::Are there individuals banded during the day? Do they have wintering information? 
 day.caps <- capri.df %>% 
@@ -249,6 +233,12 @@ capri.df4 <- transform(capri.df4, Str8line =
                          distHaversine(cbind(capri.df4$B.Long, capri.df4$B.Lat), 
                                        cbind(capri.df4$W.Long, capri.df4$W.Lat)) / 1000)
 
+
+# Export capri.df.int -----------------------------------------------------
+
+capri.df4 %>% as.data.frame() %>%
+  write.xlsx("Intermediate_products/capri.df.int_12.30.23.xlsx", row.names = F)
+
 # Band.Age -------------------------------------------
 #Create Band.Age variable, and use mutate to combine morphologies by Band.Age
 capri.df4 <- capri.df4 %>% mutate(Band.Age = paste0(Age, "_", Band.Number)) %>%
@@ -289,7 +279,8 @@ capriBA <- capri.df5 %>% group_by(Band.Age) %>% #BA = band age
 nrow(capriBA) 
 length(unique(capriBA$uniqID))
 
+# Export capriBA ---------------------------------------------------------
 #Write capriBA.. Note uniqID is truly unique, but this df will still be further filtered
 capriBA %>% as.data.frame() %>%
-  write.xlsx("Intermediate_products/Capri_BA_12.19.23.xlsx", row.names = F)
+  write.xlsx("Intermediate_products/Capri_BA_12.30.23.xlsx", row.names = F)
 

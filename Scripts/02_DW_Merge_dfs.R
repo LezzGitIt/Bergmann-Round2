@@ -12,8 +12,12 @@ library(tidyverse)
 library(readxl)
 library(xlsx)
 library(chron)
+library(gridExtra)
 
 #1. Filter capriBA ---------------------------------------------------------------
+capriBA <- read_xlsx("Data/Capri_BA_12.19.23.xlsx", trim_ws = TRUE) %>%
+  mutate(Banding.Time = chron(times = Banding.Time))
+
 #Remove additional rows in capriBA to create capri.fin (final)
 #Remove repeat individuals, selecting adults when possible 
 levels(capriBA$Age) #Should get NULL, this should NOT be a factor in order for arrange to work correctly
@@ -38,12 +42,11 @@ capri.fin <- capriRes %>% filter(Project != "Greg_EDB" & Sex != "U" & Year >= 20
 #2. Merge -------------------------------------------------------------------
 #Link capri.fin with EnviCovs
 #Bring in EnviCovs2
-EnviCovs2 <- read_xlsx()
+EnviCovs2 <- read_xlsx("Data/Envi_Covs_12.30.23.xlsx")
 
 EnviCovs3 <- EnviCovs2 %>% select(-c(Species, Banding.Date, Band.Number))
 capriA <- capri.fin %>% left_join(EnviCovs3, by = "uniqID") #"uniqID" #capri Analysis
-   
-names(EnviCovs2)
+
 #3. Remove superflous columns -----------------------------------------------
 HypVars <- vector("list", length = 5)
 HypVars[[1]] <- data.frame(Vars = c("Lat", "Long", "Elev")) #Geography
@@ -55,8 +58,8 @@ names(HypVars) <- c("Geo", "TR", "Prod", "Seas", "Mig.Dist")
 HypVarsDf <- bind_rows(HypVars, .id = "Hypothesis")
 HypVarsDf <- HypVarsDf %>% mutate(Full = c("Latitude", "Longitude", "Elevation", "Solar radiation", "Temperature", "EVI", "Precipitation", "EVI CV", "Precipitation CV", "Temperature CV", "Migratory distance"))
 
-capriA.red <- capriA %>% 
-  select(contains(c("uniqID","Band.Number","Project","Species","Age","Sex","comb", HypVarsDf$Vars))) %>%
+capriA.red <- capriA %>% select(contains(c("uniqID","Band.Number","Project","Species",
+                                           "Age","Sex","comb", HypVarsDf$Vars))) %>%
   select(-c(WingFlat, Band.Age, Mass.comb))
 
 #Remove a few coastal individuals (from breeding grounds) that have no environmental data 
@@ -88,12 +91,14 @@ for(i in 1:nrow(loop_spp_sea)){
 }
 
 #Print plots to PDF
-pdf("Plots/Corr_IVs2.pdf")
+pdf(paste0("Plots/Corr_IVs_", format(Sys.Date(), "%m.%d.%y"), ".pdf"))
 print(marrangeGrob(Corr.plots, ncol = 1, nrow = 1))
 dev.off()
 
 # 5.  Scale numeric variables  --------------------------------------------
-capriA.s <- capriA.red2 %>% mutate(across(where(is.numeric), ~ scale(.)[,1])) 
+capriA.s <- capriA.red2 %>% group_by(Species) %>% 
+  mutate(across(where(is.numeric), ~ scale(.)[,1])) %>% 
+  ungroup()
 #Now that all data wrangling is finished..
 capri.fac <- capriA.s %>% filter(!is.na(W.Lat))
 nrow(capri.fac)
@@ -103,7 +108,6 @@ capri.fac %>% filter_all(any_vars(is.na(.)))
 
 # 6.  Subset breeding dfs list --------------------------------------------------
 #Subsetted dfs based on species & DV, these dfs will be used in future analysis script
-
 subset.df <- function(df, spp, var){
   df %>% filter(Species == spp & !is.na(.data[[var]]))
 }
@@ -134,6 +138,8 @@ njdf.list.fac <- lapply(njdf.list.fac, function(x) {x %>% filter(!is.na(Mig.dist
 
 # #8.  Export -------------------------------------------------------------
 
-#save.image("Rdata/Capri_dfs.Rdata")
-capriA.red %>% as.data.frame() %>%
-  write.xlsx("Intermediate_products/capriA.red_12.21.23.xlsx", row.names = F)
+#capriA.red2 %>% as.data.frame() %>%
+ # write.xlsx("Intermediate_products/capriA.red_12.30.23.xlsx", row.names = F)
+
+#rm(list= ls()[!(ls() %in% c("njdf.list.br", "njdf.list.fac", "capriA.s", 'capri.fac', "HypVars", "HypVarsDf", "loopSppDV"))])
+#save.image("Rdata/Capri_dfs_12.30.23.Rdata")

@@ -1,11 +1,52 @@
 ##Plotting -- 
 #This script conducts all plotting, including the capture locs & migratory paths figure, and the parameter estimates figure across DV & data set (Breeding, FAC) combinations
 library(tidyverse)
+library(readxl)
 library(rnaturalearthdata)
 library(smoothr)
 library(rnaturalearth)
 library(sf)
 library(ggpubr)
+library(cowplot)
+library(ggrepel)
+library(ggthemes)
+ggplot2::theme_set(theme_cowplot())
+
+# Parm estimates plot -----------------------------------------------------
+
+parm.df.form <- read_xlsx("Data/parm.df.form.xlsx")
+
+#parm.df.imp <- parm.df.form %>% filter(Important == "Y")
+parms.group <- parm.df.form %>% filter(Important == "Y") %>%
+  group_by(DV, Data.set)
+parms.impL <- parms.group %>% group_split()
+names(parms.impL) <- parms.group %>% group_keys() %>%
+  mutate(name = paste0(DV, "_", Data.set)) %>% 
+  pull(name)
+
+#Create function to plot parameters
+plot.parms <- function(parms.df){
+  ggplot(data = parms.df, aes(x = Parameter, y = Beta, 
+                              group = interaction(Species, Season), color = Species, shape = Season)) + 
+    geom_point(size = 4, position = position_dodge(width = 0.75)) + 
+    geom_errorbar(aes(ymin=LCI, ymax=UCI), 
+                  alpha = .6, width=0, size = 1.5, position = position_dodge(width = 0.75)) +
+    scale_y_continuous(name = expression(paste("Parameter estimate (", beta, ")"))) + 
+    scale_color_manual(values= colorblind_pal()(8)[c(4,6,8)], 
+                       breaks = c("Nighthawk", "Nightjar", "Whip-poor-will")) +
+    theme(axis.title.x = element_blank(), axis.title.y = element_text(size = 12), 
+          axis.text.x = element_text(size = 12, vjust = .58, angle = 60), 
+          legend.title = element_text(size=14), legend.text = element_text(size=12), 
+          plot.margin = margin(10,10,8,25)) + 
+    geom_hline(yintercept = 0, linetype = "dashed", linewidth = 1) + 
+    ggtitle(paste(parms.df$DV, parms.df$Data.set))
+}
+
+#Apply custom function across list
+plots.list <- lapply(parms.impL, plot.parms)
+ggarrange(plots.list[[1]], plots.list[[2]], plots.list[[3]], plots.list[[4]], common.legend = TRUE)
+
+#ggsave("Plots/Parm_ests_imp_aic_less4_scale_12.30.23.png", bg = "white", width = 9)
 
 # Mig paths ---------------------------------------------------------------
 sf_use_s2(FALSE)
@@ -54,32 +95,3 @@ BrWiMap <- p + geom_sf(data = BrWiConnDf, alpha = 0.2, aes(color = Species)) +
 ggarrange(BrWiMap, legend.grob = legend)
 ggsave("Plots/BrWiBergMap.png", bg = "white")
 
-# Parm estimates plot -----------------------------------------------------
-
-#parm.df.imp <- parm.df.form %>% filter(Important == "Y")
-parms.impL <- parm.df.form %>% filter(Important == "Y") %>%
-  group_split(DV, Data.set)
-
-#Create function to plot parameters
-plot.parms <- function(parms.df){
-  ggplot(data = parms.df, aes(x = Parameter, y = Beta, 
-                              group = interaction(Species, Season), color = Species, shape = Season)) + 
-    geom_point(size = 4, position = position_dodge(width = 0.75)) + 
-    geom_errorbar(aes(ymin=LCI, ymax=UCI), 
-                  alpha = .6, width=0, size = 1.5, position = position_dodge(width = 0.75)) +
-    scale_y_continuous(name = expression(paste("Parameter estimate (", beta, ")"))) + 
-    scale_color_manual(values= colorblind_pal()(8)[c(4,6,8)], 
-                       breaks = c("Nighthawk", "Nightjar", "Whip-poor-will")) +
-    theme(axis.title.x = element_blank(), axis.title.y = element_text(size = 12), 
-          axis.text.x = element_text(size = 12, vjust = .58, angle = 60), 
-          legend.title = element_text(size=14), legend.text = element_text(size=12), 
-          plot.margin = margin(10,10,8,25)) + 
-    geom_hline(yintercept = 0, linetype = "dashed", size = 1) + 
-    ggtitle(paste(parms.df$DV, parms.df$Data.set))
-}
-
-#Apply custom function across list
-plots.list <- lapply(parms.impL, plot.parms)
-ggarrange(plots.list[[1]], plots.list[[2]], plots.list[[3]], plots.list[[4]], common.legend = TRUE)
-
-ggsave("Plots/Parm_ests_imp_aic_less4_12.29.23.png", bg = "white", width = 9)
