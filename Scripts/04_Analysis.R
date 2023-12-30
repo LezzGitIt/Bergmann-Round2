@@ -1,10 +1,107 @@
 ##Analysis -- 
 #This script conducts all primary analyses, including: 1) examining nuisance variables, 2) conducting model selection & generating AIC tables, and 3) extracting parameter coefficients from important models
 
-#DIFFERENCES W/ FAC PREVIOUS APPROACH:
-#NOTICE SAMPLE SIZES DIFFERENT (ESPECIALLY EUNI)! NO AGE IN EWPW, MODEL SELECTION PROCEDURE (NOT JUST MOST PARSIMONIOUS MODEL FOR EACH SPP*DV COMBO), 3 CONI FEWER DUE TO MIG.DIST, MIG.DIST IS ACTUAL DISTANCE, MASS.COMBBT VS MASS ALSO GOING TO CHANGE DATA SET SLIGHTLY (NOT ONLY WHO'S PRESENT, BUT THE MASS.COMB VAR IS AVERAGED FROM SLIGHTLY DIFFERENT NUMBERS), MAY BE A FEW MINOR ERRORS CORRECTED THROUGH THAT TIME
-#EWPW IS THE SAME, CONI IS THE SAME, EUNI 
+# Libraries & load key dfs ------------------------------------------------
+library(AICcmodavg)
+library(MuMIn)
+library(tidyverse)
+library(naniar)
+library(readxl)
+library(xlsx)
+library(stringi)
+library(sjPlot)
 
+load("Data/Capri_dfs_12.30.23.Rdata")
+
+# Nuisance variables by spp -----------------------------------------------
+#Goal is to examine the impact of nuisance variables Age, sex, and time since sunset (tsss; only on Mass) for each Spp * DV combination. We include tsss as a quadratic variable based on visualization (see Data exploration.R script)
+njdf.list.age <- lapply(njdf.list.br, function(x){x[x$Age != "Unk",]})
+lapply(njdf.list.age, nrow) #Nighthawk only has 50 individuals that are aged. Age is not in top model for Wing or Mass (w/ the 50 bird df), so let's leave in all individuals and remove Age from model
+
+globNuis <- drgNuis <- candNuis <- aictabNuis <- sumTM <- TM <- resid.plots <- list()
+for(i in 1:nrow(loopSppDV)){
+  print(paste("i =", i))
+  if(loopSppDV[i,1] == "Nightjar" | loopSppDV[i,1] == "Whip-poor-will"){
+    df <- njdf.list.age[paste0(loopSppDV[i,1], ".", loopSppDV[i,2])][[1]]
+    globNuis[[i]] <- lm(as.formula(paste(loopSppDV[i,2],"~", c("B.Lat + Age + Sex"))), na.action =
+                          "na.fail", data = df)
+    }
+if(loopSppDV[i,1] == "Nighthawk"){#Overwrite Nuis global; include Unk age birds for Nighthawk (via njdf.list)
+  df <- njdf.list.br[paste0(loopSppDV[i,1], ".", loopSppDV[i,2])][[1]]
+#Remove age from model
+  globNuis[[i]] <- lm(as.formula(paste(loopSppDV[i,2],"~", c("B.Lat + Sex"))), na.action = "na.fail",
+                      data = df)
+  }
+if(loopSppDV[i,2] == "Mass.combBT"){
+  df <- df %>% filter(!is.na(tsss.comb))
+  globNuis[[i]] <- update(globNuis[[i]], ~. + poly(tsss.comb,2)) #Add tsss.comb to model
+  }
+  drgNuis[[i]] <- dredge(globNuis[[i]], m.lim = c(0,6))
+  candNuis[[i]] <- get.models(object = drgNuis[[i]], subset = T)
+  NamesNuis <- sapply(candNuis[[i]], function(x){paste(x$call)}[2]) #Why +1?
+  aictabNuis[[i]] <- aictab(cand.set = candNuis[[i]], modnames = NamesNuis, sort = TRUE)
+  TM[[i]] <- lm(as.formula(aictabNuis[[i]]$Modnames[1]), na.action = "na.fail", data = df) #Top model
+  sumTM[[i]] <- summary(TM[[i]])  #Summary of the top model
+#resid.plots[[i]] <- plot(TM[[i]], which = 1, main = paste(loopSppDV[i,1], loopSppDV[i,2]))
+##Residual plots by Age & Sex, they all look reasonable
+  boxplot(resid(TM[[i]]) ~ Sex, data = df, main = paste(loopSppDV[i,1], loopSppDV[i,2],
+                                                        "Heterogeneity Sex"), ylab = "Residuals")
+  if(loopSppDV[i,1] == "Whip-poor-will" | loopSppDV[i,1] == "Nightjar"){
+    boxplot(resid(TM[[i]]) ~ Age, data = df, main = paste(loopSppDV[i,1], loopSppDV[i,2],
+                                                          "Heterogeneity Age"), ylab = "Residuals")
+  }
+  }
+names(aictabNuis) <- paste0(loopSppDV[,1], "_", loopSppDV[,2])
+
+#Notice all species are the same, Age (not included in Nighthawk models) + Sex for wing chord, and Age + Sex + tsss for mass
+lapply(aictabNuis, slice_head, n = 5)
+#Examine impact of age in nighthawks
+summary(lm(Mass.combBT ~ B.Lat + Age, njdf.list.age$Nighthawk.Mass.combBT))
+names(sumTM) <- paste0(loopSppDV[,1], "_", loopSppDV[,2])
+
+#Create combined data frame of nuisance variable model selection results for sharing
+NuisVarsModSelect <- bind_rows(lapply(aictabNuis, slice_head, n = 5))
+
+#Extract the top model of nuisance variables for each Spp*DV combination
+Nuis_mods <- lapply(aictabNuis, function(x){x$Modnames[1]})
+#Strip the top model down to just the predictor vars without B.Lat or +1
+Nuis_mods2 <- lapply(Nuis_mods, str_remove, pattern = '\\+ 1 | \\+ 1|1 \\+ ')
+Nuis_mods3 <- lapply(Nuis_mods2, str_remove, pattern = "B.Lat \\+ |B.Lat")
+NuisVars <- lapply(Nuis_mods3, function(x){str_split(x, "~ ")[[1]][2]})
+NuisVars
+
+#Remove 'Unk' aged birds from those where Species != Nighthawk, only in breeding b/c Age is not included as a covariate in FAC data 
+njdf.list.br <- lapply(njdf.list.br, function(x) {
+  if (unique(x$Species) != "Nighthawk") {
+    x %>% filter(Age != "Unk")
+    } else {
+      x  # If Species is "CONI", return the original data frame
+      }
+  })
+lapply(njdf.list.br, nrow)
+
+# Loop dfs ----------------------------------------------------------------
+#Dfs to cycle through loop
+loop.fac <- expand.grid(Species = c("Nighthawk", "Whip-poor-will", "Nightjar"),
+                        DV = c("Wing.comb", "Mass.combBT"),
+                        Season = c("Breed", "Winter"),
+                        Hypothesis = c("Geo", "TR", "Prod", "Seas"),
+                        stringsAsFactors = FALSE)
+loop.fac2 <- expand.grid(Species = c("Nighthawk", "Whip-poor-will", "Nightjar"),
+                         DV = c("Wing.comb", "Mass.combBT"),
+                         Season = "NA",
+                         Hypothesis = "Mig.Dist",
+                         stringsAsFactors = FALSE)
+loop.fac <- rbind(loop.fac, loop.fac2) %>%
+  arrange(Species, DV, Hypothesis)
+
+loop.br <- expand.grid(Species = c("Nighthawk", "Whip-poor-will", "Nightjar"),
+                       DV = c("Wing.comb", "Mass.combBT"),
+                       Hypothesis = c("Geo", "TR", "Prod", "Seas"),
+                       stringsAsFactors = FALSE) %>%
+  arrange(Species, DV, Hypothesis)
+
+# for loop wrapped in function --------------------------------------------
 cormat <- TF.cormat <- globHyp <- drgHyp <- cand.mods <- list()
 #Create function to extract the model names 
 get.modNames <- function(njdf.list, loop.df, Season = FALSE, FAC = FALSE){
@@ -36,8 +133,8 @@ get.modNames <- function(njdf.list, loop.df, Season = FALSE, FAC = FALSE){
     
     predictors <- paste(VarsVect, collapse = "+")
     if(FAC == TRUE){ #Add limit of 3 vars per model due to small sample size
-      globHyp[[i]] <- lm(as.formula(paste(loop.df[i,2], "~", predictors)), na.action = "na.fail", data = df, m.lim = c(0,3))
-      drgHyp[[i]] <- dredge(globHyp[[i]], subset = TF.cormat[[i]], evaluate = FALSE)
+      globHyp[[i]] <- lm(as.formula(paste(loop.df[i,2], "~", predictors)), na.action = "na.fail", data = df)
+      drgHyp[[i]] <- dredge(globHyp[[i]], subset = TF.cormat[[i]], evaluate = FALSE, m.lim = c(0,3))
     } else{ #Add fixed variable structure to dredge
       NV <- NuisVars[paste0(loop.df[i,1], "_", loop.df[i,2])][[1]]
       globHyp[[i]] <- lm(as.formula(paste(loop.df[i,2], "~", predictors, "+", NV)), na.action = "na.fail", data = df)
@@ -83,8 +180,6 @@ mods.Lstr_list <- lapply(modNamesDfs, function(df) {
   df %>% group_split(Species, DV)
 })
 
-mods.Lstr_list$modNames.br[[3]] %>% View()
-
 ##Function to convert character strings to formulas
 convert_to_formula <- function(df, col_name) {
   lapply(df[[col_name]], formula)
@@ -115,11 +210,6 @@ gen_aictab <- function(mods.list, names.list){
 }
 aictab_list <- Map(gen_aictab, mods.Llm_list, mods.Lstr_list)
 names(aictab_list) <- c("Breeding", "FAC")
-
-#CHECK::Confirmed that modNames linked up correctly. DELETE
-aictab_list$FAC[[6]]
-aictab_list2$FAC[[6]]
-mods.Llm_list$FAC[[6]][[4]]
 
 #Create 'generate columns' function, in this case season, hypothesis & Null columns 
 gen.cols <- function(list){
@@ -183,16 +273,17 @@ filt.tab <- function(list, AIC) {
 
 #Create reduced list of AIC tables
 aictab_list_red <- lapply(aictab_list5, filt.tab, AIC = "ΔAICc")
+aictab_list_red <- lapply(aictab_list_red, lapply, select, -Null)
 
 # Export tables -----------------------------------------------------------
-library(sjPlot)
 lapply(seq_along(aictab_list_red), function(i) {
   tab_dfs(x = aictab_list_red[[i]],  # Use [[i]] to subset the list correctly
           titles = names(aictab_list_red[[i]]),
           footnotes = rep("AICc value of best model =", 6),
           show.footnote = TRUE,
           alternate.rows = TRUE, 
-          file = paste0("Tables/AIC_tab_", names(aictab_list_red)[i], ".doc")
+          file = paste0("Tables/AIC_tab_", names(aictab_list_red)[i], 
+                        format(Sys.Date(), "%m.%d.%y"), ".doc")
   )
 })
 
@@ -216,17 +307,6 @@ HypVarsDf2 <- rbind(HypVarsDf, HypVarsDf) %>%
   mutate(Season = c(rep("B.", 10), "", rep("W.", 10), ""))
 aictab2_red <- lapply(aictab_list2, filt.tab, AIC = "Delta_AICc")
 
-
-imp.vars <- lapply(aictab2_red$Breeding, function(df){
-  df[,"Modnames"]
-})
-
-i <- 2
-var <- "Long"
-
-ext.modavgs(aictab_red = aictab2_red$Breeding, mods.list = mods.Llm_list$Breeding, var = paste0("B.", HypVarsDf2[i,]$Vars), names.list = mods.Lstr_list$modNames.br)
-any(str_detect(imp.br.vars$`Whip-poor-will-Wing.comb`, HypVarsDf2[1,"Vars"]))
-
 #Each slot in the list is a parameter, and each slot has 6 lists (one for each Spp * DV combo)
 for(i in 1:nrow(HypVarsDf2)){ # c(1:6,8:17,19:22)
   print(i)
@@ -237,26 +317,16 @@ for(i in 1:nrow(HypVarsDf2)){ # c(1:6,8:17,19:22)
 }
 names(parm.estB) <- HypVarsDf2$Full[1:10]
 
-#DELETE
-parm.estFAC$Longitude$Nighthawk_Mass.combBT
-aictab_list$Breeding$`Nightjar-Mass.combBT`
-aictab_list6$Breeding$`Nighthawk-Mass.combBT`
-
-aictab_list6$FAC
-aictab2_red$FAC
-
-summary(lm(Mass.combBT ~ B.Elev + B.Lat + B.Long + poly(tsss.comb, 2) + Sex, data = njdf.list.br$Nighthawk.Mass.combBT))
-
-
-#Create the data frame with parameter estimates.
+#Create function to generate data frame with parameter estimates
 create.parmdf <- function(parm.estL, fac = FALSE){
   parm.dfs <- lapply(parm.estL, bind_rows, .id = "SppDV")
   parm.df <- bind_rows(parm.dfs)
-  parm.df2 <- parm.df %>% mutate(Species = sapply(strsplit(SppDV, "_"), function(x){x[1]}),
-                                 DV = sapply(strsplit(SppDV, "_"), function(x){x[2]}),
-                                 Important = ifelse(Lower.CL < 0 & Upper.CL > 0, "N", "Y"),
-                                 Season = sapply(strsplit(Parameter, "\\."), function(x){x[1]}),
-                                 Parameter = sapply(strsplit(Parameter, "\\."), function(x){x[2]})) %>% 
+  parm.df2 <- parm.df %>%
+    mutate(Species = sapply(strsplit(SppDV, "_"), function(x){x[1]}),
+           DV = sapply(strsplit(SppDV, "_"), function(x){x[2]}),
+           Important = ifelse(Lower.CL < 0 & Upper.CL > 0, "N", "Y"),
+           Season = sapply(strsplit(Parameter, "\\."), function(x){x[1]}),
+           Parameter = sapply(strsplit(Parameter, "\\."), function(x){x[2]})) %>% 
     select(-c(SppDV, Mod.avg.table, Conf.level)) %>% 
     distinct() 
   return(parm.df2)
@@ -284,48 +354,11 @@ parm.df.form <- parm.df %>% rename(Beta = Mod.avg.beta, LCI = Lower.CL, UCI = Up
   left_join(HypVarsDf[,c("Hypothesis", "Full")], by = join_by("Parameter" == "Full")) %>% 
   mutate(Parameter = factor(Parameter, levels = unique(Parameter[order(Hypothesis)])))
 
-
 parm.df.form %>% filter(Data.set == "Fac") %>%
   count(Season)
 parm.df.form %>% filter(Data.set == "Br") %>%
   count(Hypothesis)
 
-# Find error --------------------------------------------------------------
-
-##CHECK THESE PLOTS AGAINST 1) SOME LMS FROM THE RAW DATA, 2) THE MODEL SELECTION TABLES. ULTIMATELY CAN GO BACK & CHECK THINGS BIT BY BIT UNTIL FIND THE ERROR, AND MAY HAVE TO ASK ELLY & ALICIA TO HELP SCOUR THE CODE TO FIND THE ERROR 
-mods.Llm_list 
-NuisVars
-
-#This is model that it's basing Long parameter estimate off of (estimate = +1.01)
-summary(lm(Mass.combBT ~ B.Long + B.Elev + Age + poly(tsss.comb, 2) + Sex, data = njdf.list.br$Nightjar.Mass.combBT))
-#Note reversal of direction when using B.Lat instead of B.Elev
-summary(lm(Mass.combBT ~ B.Long + B.Lat + Age + poly(tsss.comb, 2) + Sex, data = njdf.list.br$Nightjar.Mass.combBT))
-
-
-# DELETE  -----------------------------------------------------------------
-for(i in 1:nrow(loop)){ #
-  print(paste("i =", i))
-  df <- njdf.list.br[paste0(loop[i,1], ".", loop[i,2])][[1]]
-  xcols <- df %>% select(contains("comb"), "Age", "Sex", "Mig.dist") #X for extra
-  #CHANGE
-  df <- df[, substr(names(df), 1, 1) == substr(loop[i,3], 1, 1)] #Select columns for the season in question (winter or breeding)
-  df <- cbind(df, xcols)
-  Vars <- dplyr::select(df, matches(HypVars[[loop[i,4]]][[1]], ignore.case = F)) 
-  VarsVect <- names(Vars)
-  
-  cormat[[i]] <- round(cor(Vars, use = "complete.obs", method = "spearman"), 2)
-  TF.cormat[[i]] <- apply(cormat[[i]], 2, function(x){ifelse(x < .7 & x > -.7, T, F)})
-  TF.cormat[[i]][upper.tri(TF.cormat[[i]], diag = T)] <- NA
-  if(loop[i,4] == "Mig.Dist"){
-    TF.cormat[[i]] <- matrix(data = TRUE)
-    rownames(TF.cormat[[i]]) <- "Mig.dist"
-    colnames(TF.cormat[[i]]) <- "Mig.dist"
-  }
-  
-  predictors <- paste(VarsVect, collapse = "+")
-  NV <- NuisVars[paste0(loop[i,1], "_", loop[i,2])][[1]]
-  globHyp[[i]] <- lm(as.formula(paste(loop[i,2], "~", predictors, "+", NV)), na.action = "na.fail", data = df)
-  #Removed m.lim = c(0,3) as with breeding data this won't be an issue
-  drgHyp[[i]] <- dredge(globHyp[[i]], subset = TF.cormat[[i]], fixed = as.formula(paste("~", NV)), evaluate = FALSE)
-  modNames[[i]] <- lapply(cand.mods[[i]], formula)
-}
+#Export parm.df.form dataframe
+parm.df.form %>% as.data.frame() %>%
+  write.xlsx("Intermediate_products/parm.df.form.xlsx", row.names = FALSE)
