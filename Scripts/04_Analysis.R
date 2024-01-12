@@ -7,7 +7,7 @@
 #Want to do fewest parms within delta AIC < 2? Don't think it is necessary
 #Likelihood ratio test to examine goodness of fit?
 #Add age in for EWPW FAC models? Or just run adult males? 
-#Format parm estimates plot , consider FAC to supp material
+#Add in Elly's birds with Spring migration data
 #Plot IVs & DVs of important models (Or at least latitude!) using predict? 
 #Change from mass.comb to mass for FAC models? Or include tsss as predictor in FAC models as well?
 #Look back at draft w/ comments & paste over a few relevant comments
@@ -83,17 +83,31 @@ lapply(aictabNuis, slice_head, n = 5)
 summary(lm(Mass.combBT ~ B.Lat + Age, njdf.list.age$Nighthawk.Mass.combBT))
 names(sumTM) <- paste0(loopSppDV[,1], "_", loopSppDV[,2])
 
+#May want to format Nuisance variable table.. in which case would have to go through all previous functions. Could be worth compiling functions & source()
+#Nuis_dfs <- only.IVs(aictabNuis)
+#cols.format(Nuis_dfs)
+#tab_dfs(x = aictabNuis, 
+       # titles = names(aictabNuis),
+        #footnotes = paste(rep("AICc value of best model =", 6), minAIC_l[[i]]),
+        #show.footnote = TRUE,
+       # alternate.rows = TRUE, 
+       # file = paste0("Tables/Nuisance_Vars_AIC", 
+                      #format(Sys.Date(), "%m.%d.%y"), ".doc"))
+
 #Create combined data frame of nuisance variable model selection results for sharing
 NuisVarsModSelect <- bind_rows(lapply(aictabNuis, slice_head, n = 5))
 
 #Extract the top model of nuisance variables for each Spp*DV combination
 Nuis_mods <- lapply(aictabNuis, function(x){x$Modnames[1]})
+
 #Strip the top model down to just the predictor vars without B.Lat or +1
 Nuis_mods2 <- lapply(Nuis_mods, str_remove, pattern = '\\+ 1 | \\+ 1|1 \\+ ')
 Nuis_mods3 <- lapply(Nuis_mods2, str_remove, pattern = "B.Lat \\+ |B.Lat")
 NuisVars <- lapply(Nuis_mods3, function(x){str_split(x, "~ ")[[1]][2]})
 NuisVars
 
+
+# Remove age & sex FAC ----------------------------------------------------
 #Remove 'Unk' aged birds from those where Species != Nighthawk, only in breeding b/c Age is not included as a covariate in FAC data 
 njdf.list.br <- lapply(njdf.list.br, function(x) {
   if (unique(x$Species) != "Nighthawk") {
@@ -103,6 +117,15 @@ njdf.list.br <- lapply(njdf.list.br, function(x) {
       }
   })
 lapply(njdf.list.br, nrow)
+
+#njdf.list.fac <- lapply(njdf.list.fac, function(df) {
+  if (unique(df$Species) != "Nighthawk") {
+    df %>% filter(Age != "Unk" & Age != "Young" & Sex != "F")
+  } else {
+    df %>% filter(Age != "Young" & Sex != "F") #If Species is "CONI", just remove Young & F
+  }
+})
+lapply(njdf.list.fac, nrow)
 
 # Loop dfs ----------------------------------------------------------------
 #Dfs to cycle through loop
@@ -313,7 +336,7 @@ aictab_list3$Breeding <- lapply(aictab_list3$Breeding, function(df) {df %>% sele
 #Rename Modnames so they only display the IVs & are not Season specific
 only.IVs <- function(list) {
   lapply(list, function(df) {
-    df<- df %>% mutate(Modnames = sapply(strsplit(Modnames, split = "~ "), function(x) {x[2]})) %>% 
+    df <- df %>% mutate(Modnames = sapply(strsplit(Modnames, split = "~ "), function(x) {x[2]})) %>% 
       mutate(Modnames = str_remove_all(Modnames, "B.|W.")) %>%
       return(df)
   })
@@ -329,16 +352,20 @@ full.names <- function(list) {
   })
 }
 aictab_list5 <- lapply(aictab_list4, full.names)
+minAIC_l <- lapply(aictab_list5, lapply, function(df){
+  df %>% slice_min(AICc) %>% 
+    pull(AICc)
+})
 
 #Remove columns and rename the remaining columns 
-cols.format <- function(list) {
+cols.format <- function(list, var1 = NULL, var2 = NULL) {
   lapply(list, function(df) {
     df %>% select(-c(AICc, ModelLik)) %>% #-Cum.Wt
       rename_at(vars(1:5), ~ c("Model", "K", "ΔAICc", "wt", "-2 Log-likelihood")) %>% 
-      relocate(R2, .after = Hypothesis)
+      relocate(.data[[var1]], .after = .data[[var2]])
   })
 }
-aictab_list6 <- lapply(aictab_list5, cols.format)
+aictab_list6 <- lapply(aictab_list5, cols.format, "R2", "Hypothesis")
 
 #DELETE, Change to list6 if need to continue 
 aictab_list5$Breeding$`Nightjar-Mass.combBT`
@@ -354,29 +381,75 @@ num.hyp <- lapply(aictab_list2, lapply, function(x){
 bind_rows(num.hyp, .id = "Spp_DV")
 #THROUGH HERE
 
+#Replace the Null hypothesis with "1", and then replace "1" with "Null"
+replace.null <- function(df, NuisVars) {
+  df %>% mutate(Model = ifelse(Model %in% NuisVars, "1", Model)) %>% 
+    mutate(Model = ifelse(Model == "1", "Null", Model))
+}
+
+aictab_list7 <- lapply(names(aictab_list6), function(nm){
+  Map(replace.null, aictab_list6[[nm]], NuisVars)
+})
+names(aictab_list7) <- c("Breeding", "FAC")
+
 #Filter the AIC tables based on the Null model & ΔAICc values
 filt.tab <- function(list, AIC) {
   lapply(list, function(df) {
     df %>% filter(row_number() <= which(Null == "Yes")[1]) %>%
-      filter(.data[[AIC]] < 4)
+      filter(.data[[AIC]] < 4) %>% 
+      select(-Null)
   })
 }
 
 #Create reduced list of AIC tables
-aictab_list_red <- lapply(aictab_list6, filt.tab, AIC = "ΔAICc")
-aictab_list_red <- lapply(aictab_list_red, lapply, select, -Null)
+aictab_list_red <- lapply(aictab_list7, filt.tab, AIC = "ΔAICc")
+
+#Remove Nuisance variables from lists for printing 
+Rm.NV <- function(aic_list){
+  lapply(aic_list, function(df){
+    df %>% mutate(Model = str_remove_all(Model, " \\+ Age| \\+ poly\\(tsss\\.comb, 2\\)| \\+ Sex"))
+  })
+}
+aictab_list_print <- lapply(aictab_list7, Rm.NV)
+aictab_list_print <- lapply(aictab_list_print, lapply, select, -Null)
 
 # Export tables -----------------------------------------------------------
-lapply(seq_along(aictab_list_red), function(i) {
-  tab_dfs(x = aictab_list_red[[i]],  # Use [[i]] to subset the list correctly
-          titles = names(aictab_list_red[[i]]),
-          footnotes = rep("AICc value of best model =", 6),
-          show.footnote = TRUE,
-          alternate.rows = TRUE, 
-          file = paste0("Tables/AIC_tab_", names(aictab_list_red)[i], 
-                        format(Sys.Date(), "%m.%d.%y"), ".doc")
-  )
-})
+#Names to print
+names.p <- loopSppDV %>% 
+  mutate(DV = str_replace_all(DV, pattern = c("Mass.combBT" = "Mass", "Wing.comb" = "Wing"))) %>% 
+  mutate(name = paste(Species, DV)) %>% 
+  pull(name)
+#CHECK:: Ensure that names are in same order
+names.p 
+names(aictab_list_print[[1]])
+#Create titles for the tables
+titles <- data.frame(Breeding = paste(names.p, "–", "Fixed variables:", NuisVars.print),
+                     FAC = names.p)
+
+export.aictab <- function(aictab_list, dir){
+  lapply(seq_along(aictab_list), function(i) {
+    col.header <- names(aictab_list[[i]][[1]])
+    col.header[length(col.header)] <- "R²" 
+    tab_dfs(x = aictab_list[[i]], 
+            titles = titles[[i]],
+            col.header = col.header,
+            footnotes = paste(rep("AICc value of best model =", 6), minAIC_l[[i]]),
+            show.footnote = TRUE,
+            alternate.rows = TRUE, 
+            file = paste0(dir, names(aictab_list)[i], 
+                          format(Sys.Date(), "%m.%d.%y"), ".doc")
+    )
+  })
+}
+#Format tables
+NuisVars.print <- sapply(NuisVars, str_replace_all, "poly\\(tsss\\.comb, 2\\)", "Time since sunset²")
+aictab_list_red_print <- lapply(aictab_list_red, Rm.NV)
+
+#Call custom function to export the AIC tables
+#All models for supplementary materials
+export.aictab(aictab_list_print, dir = "Tables/AIC_tab_all_models_")
+#Just models within 4 AIC points of the top model
+export.aictab(aictab_list_red_print, dir = "Tables/AIC_tab_red_")
 
 # Residual plots ----------------------------------------------------------
 #Generate strings of important model names
@@ -409,11 +482,11 @@ plot.resid <- function(mods.list, Season = c("Breeding", "FAC")){
 }
 
 #Figure out how to add names to this later, may be problem with CONI Wing models
-pdf(file = "Plots/Model_assumption_plots/plot1_fitted_resid2.pdf", 
+#pdf(file = "Plots/Model_assumption_plots/plot1_fitted_resid2.pdf", 
     width = 8.5, height = 5, bg = "white")
 plot.resid(imp.mods$Breeding, Season = "Breeding")
 plot.resid(imp.mods$FAC, Season = "FAC")
-dev.off()
+#dev.off()
 
 
 # ModAvg ------------------------------------------------------------------
@@ -447,7 +520,6 @@ for(i in 1:nrow(HypVarsDf2)){
   parm.estFAC[[i]] <- ext.modavgs(aictab_red = aictab3_red$FAC, mods.list = mods.Llm_list$FAC, var = paste0(HypVarsDf2[i,]$Season, HypVarsDf2[i,]$Vars), names.list = mods.Lstr_list$modNames.fac, conf.level = .95)
 }
 names(parm.estB) <- HypVarsDf2$Full[1:10]
-
 
 #Create function to generate data frame with parameter estimates
 create.parmdf <- function(parm.estL, fac = FALSE){
@@ -495,7 +567,33 @@ parm.df.form <- parm.df %>% rename(Beta = Mod.avg.beta, LCI95 = Lower.CL, UCI95 
   left_join(HypVarsDf[,c("Hypothesis", "Full")], by = join_by("Parameter" == "Full")) %>% 
   mutate(Parameter = factor(Parameter, levels = unique(Parameter[order(Hypothesis)])))
 
+#Export parm.df.form dataframe
+parm.df.form %>% as.data.frame() %>%
+  write.xlsx("Intermediate_products/parm.df.form.xlsx", row.names = FALSE)
 
+# Export parm estimates table ---------------------------------------------
+#Notice removing Season column if reporting from all birds (not just Adult males)
+parm.tbl.print <- parm.df.form %>% select(-c(Important95, LCI95, UCI95, Season)) %>%
+  arrange(Species, DV, desc(Beta)) %>% 
+  mutate(Hypothesis = str_replace_all(Hypothesis, pattern = c("Geo" = "Geography", "Mig.Dist" = "Migratory Distance", "TR" = "Temperature Regulation", "Seas" = "Seasonality", "Prod" = "Productivity")),
+         Data.set = case_when(
+           Data.set == "Br" ~ "Breeding", 
+           Data.set == "Fac" ~ "Full-annual-cycle"
+         )) %>%
+  rename_at(vars(DV, Beta:UCI85), ~ c("Size measure","Beta estimate", "Standard error", "Lower 85% CI", "Upper 85% CI")) %>% 
+  group_by(Species, Data.set)
+parm.tbl.print.l <- parm.tbl.print %>% group_split(.keep = FALSE) 
+names(parm.tbl.print.l) <- parm.tbl.print %>% group_keys() %>% 
+  mutate(name = paste0(Species, " ", Data.set)) %>% 
+  pull(name)
+
+
+parm.tbl.print.l %>%
+    tab_dfs(titles = names(parm.tbl.print.l),
+        alternate.rows = TRUE, 
+        file = paste0("Tables/Parm_est_", format(Sys.Date(), "%m.%d.%y"), ".doc"))
+
+# Quick stats paper -------------------------------------------------------
 #Examine the number of models compared in each dataset, and the number of breeding vs. winter models in the FAC dataset
 lapply(aictab_list5, lapply, nrow)
 40 + 42 + 38 + 38 + 36 + 36
@@ -504,16 +602,35 @@ lapply(aictab_list5, lapply, nrow)
 lapply(aictab_list5$FAC,function(x){table(x$Season)})
 2 + 2 + 4 + 4 + 0 - 2 
 
+lapply(aictab_list_red$FAC, function(x){table(x$Season)})
+
 #Examine support for Breeding vs winter hypotheses
 aictab_list_red$FAC
-parm.df.form %>% filter(Data.set == "Fac") %>%
+parm.df.form %>% filter(Data.set == "Fac") %>% #& Important95 == "Y"
   count(Season)
 #Examine support for different hypotheses on the breeding grounds
 parm.df.form %>% filter(Data.set == "Br") %>%
   count(Hypothesis)
-parm.df.form %>% filter(Data.set == "Br" & Important == "Y") %>% 
+parm.df.form %>% filter(Data.set == "Br" & Important95 == "Y") %>% 
   arrange(desc(abs(Beta))) #%>% filter(Parameter == "Elevation")
 
-#Export parm.df.form dataframe
-parm.df.form %>% as.data.frame() %>%
-  write.xlsx("Intermediate_products/parm.df.form.xlsx", row.names = FALSE)
+#How much additional variation is explained in each model? 
+var.exp <- lapply(aictab_list_print, sapply, function(df){
+  df %>% filter(ΔAICc == 0 | Model == "Null") %>% 
+    reframe(add.var = abs(diff(R2)))
+})
+var.exp$FAC[[3]] <- NA #In this model set Null is the top model
+var.exp <- lapply(var.exp, unlist)
+
+R2.top <- lapply(aictab_list_print, sapply, function(df){
+  df %>% filter(ΔAICc == 0) %>% 
+    pull(R2)
+})
+
+var.exp.L <- Map(data.frame, var.exp = var.exp, R2.top = R2.top )
+var.exp.L <- lapply(var.exp.L, function(df){
+  df %>% rownames_to_column(var = "SppDV") %>% 
+    mutate(SppDV = str_split(SppDV, "\\.") %>% 
+             sapply(`[`, 1))
+  })
+
