@@ -37,7 +37,7 @@ library(sjPlot)
 
 load("Rdata/Capri_dfs_12.30.23.Rdata")
 
-# Nuisance variables by spp -----------------------------------------------
+# Nuis vars mod selection -----------------------------------------------
 #Goal is to examine the impact of nuisance variables Age, sex, and time since sunset (tsss; only on Mass) for each Spp * DV combination. We include tsss as a quadratic variable based on visualization (see Data exploration.R script)
 njdf.list.age <- lapply(njdf.list.br, function(x){x[x$Age != "Unk",]})
 lapply(njdf.list.age, nrow) #Nighthawk only has 50 individuals that are aged. Age is not in top model for Wing or Mass (w/ the 50 bird df), so let's leave in all individuals and remove Age from model
@@ -60,9 +60,9 @@ if(loopSppDV[i,2] == "Mass.combBT"){
   df <- df %>% filter(!is.na(tsss.comb))
   globNuis[[i]] <- update(globNuis[[i]], ~. + poly(tsss.comb,2)) #Add tsss.comb to model
   }
-  drgNuis[[i]] <- dredge(globNuis[[i]], m.lim = c(0,6))
+  drgNuis[[i]] <- dredge(globNuis[[i]], m.lim = c(0,6)) #, fixed = "B.Lat"
   candNuis[[i]] <- get.models(object = drgNuis[[i]], subset = T)
-  NamesNuis <- sapply(candNuis[[i]], function(x){paste(x$call)}[2]) #Why +1?
+  NamesNuis <- sapply(candNuis[[i]], function(x){paste(x$call)}[2])
   aictabNuis[[i]] <- aictab(cand.set = candNuis[[i]], modnames = NamesNuis, sort = TRUE)
   TM[[i]] <- lm(as.formula(aictabNuis[[i]]$Modnames[1]), na.action = "na.fail", data = df) #Top model
   sumTM[[i]] <- summary(TM[[i]])  #Summary of the top model
@@ -77,35 +77,55 @@ if(loopSppDV[i,2] == "Mass.combBT"){
   }
 names(aictabNuis) <- paste0(loopSppDV[,1], "_", loopSppDV[,2])
 
-#Notice all species are the same, Age (not included in Nighthawk models) + Sex for wing chord, and Age + Sex + tsss for mass
-lapply(aictabNuis, slice_head, n = 5)
-#Examine impact of age in nighthawks
+#Examine impact of age in nighthawks separately
 summary(lm(Mass.combBT ~ B.Lat + Age, njdf.list.age$Nighthawk.Mass.combBT))
+summary(lm(Wing.comb ~ B.Lat + Age, njdf.list.age$Nighthawk.Wing.comb))
 names(sumTM) <- paste0(loopSppDV[,1], "_", loopSppDV[,2])
 
-#May want to format Nuisance variable table.. in which case would have to go through all previous functions. Could be worth compiling functions & source()
-#Nuis_dfs <- only.IVs(aictabNuis)
-#cols.format(Nuis_dfs)
-#tab_dfs(x = aictabNuis, 
-       # titles = names(aictabNuis),
-        #footnotes = paste(rep("AICc value of best model =", 6), minAIC_l[[i]]),
-        #show.footnote = TRUE,
-       # alternate.rows = TRUE, 
-       # file = paste0("Tables/Nuisance_Vars_AIC", 
-                      #format(Sys.Date(), "%m.%d.%y"), ".doc"))
+#Test tsss in the FAC database 
+test.tsss <- function(df){
+  summary(lm(Mass.combBT ~ B.Lat + poly(tsss.comb, 1), data = df))
+}
+njdf.fac.mass <- njdf.list.fac[str_detect(names(njdf.list.fac), "Mass.combBT")]
 
-#Create combined data frame of nuisance variable model selection results for sharing
-NuisVarsModSelect <- bind_rows(lapply(aictabNuis, slice_head, n = 5))
+lapply(njdf.fac.mass, test.tsss)
 
-#Extract the top model of nuisance variables for each Spp*DV combination
-Nuis_mods <- lapply(aictabNuis, function(x){x$Modnames[1]})
 
-#Strip the top model down to just the predictor vars without B.Lat or +1
-Nuis_mods2 <- lapply(Nuis_mods, str_remove, pattern = '\\+ 1 | \\+ 1|1 \\+ ')
-Nuis_mods3 <- lapply(Nuis_mods2, str_remove, pattern = "B.Lat \\+ |B.Lat")
-NuisVars <- lapply(Nuis_mods3, function(x){str_split(x, "~ ")[[1]][2]})
-NuisVars
+# Format & export Nuis vars --------------------------------------------------------
+#Could be worth compiling functions & source()
+Nuis_dfs <- only.IVs(aictabNuis)
+minAIC_Nuis <- extr.minAIC(Nuis_dfs)
+Nuis_dfs2 <- cols.format(Nuis_dfs, cols.rm = c(AICc, ModelLik, Cum.Wt))
+Nuis_dfs3 <- Rm.NV(Nuis_dfs2, string = " \\+ 1") # \\+ Lat
+Nuis_dfs4 <- lapply(Nuis_dfs3, replace.null, Null_vars = NULL)
+Nuis_dfs5 <- lapply(Nuis_dfs4, function(df){
+  df %>% mutate(Model = str_replace_all(Model, "poly\\(tsss\\.comb, 2\\)", "Time since sunset²"))
+})
+Nuis_dfs_print <- lapply(Nuis_dfs5, function(df){
+  df %>% mutate(across(where(is.numeric), round, 3),)
+})
 
+#Extract the top model of nuisance variables for each Spp*DV combination. Notice all species are the same, Age (not included in Nighthawk models) + Sex for wing chord, and Age + Sex + tsss for mass
+NuisVars <- lapply(Nuis_dfs4, function(df){df$Model[1]})
+NuisVars <- lapply(NuisVars, str_remove_all, " \\+ Lat|Lat \\+ ")
+
+#Export Nuisance variable table
+#Names to print
+names.p <- loopSppDV %>% 
+  mutate(DV = str_replace_all(DV, pattern = c("Mass.combBT" = "Mass", "Wing.comb" = "Wing"))) %>% 
+  mutate(name = paste(Species, DV)) %>% 
+  pull(name)
+#CHECK:: Ensure that names are in same order
+names.p 
+names(Nuis_dfs6)
+
+tab_dfs(x = Nuis_dfs_print, 
+        titles = names.p,
+        footnotes = paste(rep("AICc value of best model =", 6), minAIC_Nuis[[i]]),
+        show.footnote = TRUE,
+        alternate.rows = TRUE, 
+        file = paste0("Tables/Nuisance_Vars_AIC", 
+                      format(Sys.Date(), "%m.%d.%y"), ".doc"))
 
 # Remove age & sex FAC ----------------------------------------------------
 #Remove 'Unk' aged birds from those where Species != Nighthawk, only in breeding b/c Age is not included as a covariate in FAC data 
@@ -298,7 +318,7 @@ gen.R2 <- function(mods.list){
 
 R2_list <- lapply(mods.Llm_list, gen.R2)
 
-#Add the R2 value to each df & then sort by DeltaAIC
+#Add the R2 value to each df & then sort by DeltaAIC. Can also do same thing using Map()
 add.R2 <- function(aictab_l, R2_l){
   lapply(seq_along(aictab_l), function(i){
     data.frame(aictab_l[[i]]) %>% mutate(R2 = R2_l[[i]]) %>% 
@@ -352,20 +372,30 @@ full.names <- function(list) {
   })
 }
 aictab_list5 <- lapply(aictab_list4, full.names)
-minAIC_l <- lapply(aictab_list5, lapply, function(df){
-  df %>% slice_min(AICc) %>% 
-    pull(AICc)
-})
 
-#Remove columns and rename the remaining columns 
-cols.format <- function(list, var1 = NULL, var2 = NULL) {
-  lapply(list, function(df) {
-    df %>% select(-c(AICc, ModelLik)) %>% #-Cum.Wt
-      rename_at(vars(1:5), ~ c("Model", "K", "ΔAICc", "wt", "-2 Log-likelihood")) %>% 
-      relocate(.data[[var1]], .after = .data[[var2]])
+extr.minAIC <- function(aictab_list){
+  lapply(aictab_list, function(df){
+    df %>% slice_min(AICc) %>% 
+      pull(AICc) %>% round(2)
   })
 }
-aictab_list6 <- lapply(aictab_list5, cols.format, "R2", "Hypothesis")
+minAIC_l <- lapply(aictab_list5, extr.minAIC)
+
+#Remove columns and rename the remaining columns 
+cols.format <- function(list, cols.rm, reloc = FALSE, vars.reloc, var.after) {
+  lapply(list, function(df) {
+    df <- df %>% as.data.frame() %>% 
+      select(-{{ cols.rm }}) %>% #-Cum.Wt
+      rename_at(c(1:5), ~ c("Model", "K", "ΔAICc", "wt", "-2 Log-likelihood"))
+    if (reloc) {
+      df <- df %>% relocate({{ vars.reloc }}, .after = {{ var.after }})
+    }
+    return(df)
+  })
+}
+
+aictab_list6 <- lapply(aictab_list5, cols.format, cols.rm = c(AICc, ModelLik), 
+                       reloc = TRUE, vars.reloc = R2, var.after = Hypothesis)
 
 #DELETE, Change to list6 if need to continue 
 aictab_list5$Breeding$`Nightjar-Mass.combBT`
@@ -381,14 +411,14 @@ num.hyp <- lapply(aictab_list2, lapply, function(x){
 bind_rows(num.hyp, .id = "Spp_DV")
 #THROUGH HERE
 
-#Replace the Null hypothesis with "1", and then replace "1" with "Null"
-replace.null <- function(df, NuisVars) {
-  df %>% mutate(Model = ifelse(Model %in% NuisVars, "1", Model)) %>% 
+#Replace variables in the Null hypothesis with "1", and then replace "1" with "Null"
+replace.null <- function(df, Null_vars) {
+  df %>% mutate(Model = ifelse(Model %in% Null_vars, "1", Model)) %>% 
     mutate(Model = ifelse(Model == "1", "Null", Model))
 }
 
 aictab_list7 <- lapply(names(aictab_list6), function(nm){
-  Map(replace.null, aictab_list6[[nm]], NuisVars)
+  Map(replace.null, aictab_list6[[nm]], Null_vars = NuisVars)
 })
 names(aictab_list7) <- c("Breeding", "FAC")
 
@@ -396,32 +426,26 @@ names(aictab_list7) <- c("Breeding", "FAC")
 filt.tab <- function(list, AIC) {
   lapply(list, function(df) {
     df %>% filter(row_number() <= which(Null == "Yes")[1]) %>%
-      filter(.data[[AIC]] < 4) %>% 
+      filter({{ AIC }} < 4) %>% 
       select(-Null)
   })
 }
 
 #Create reduced list of AIC tables
-aictab_list_red <- lapply(aictab_list7, filt.tab, AIC = "ΔAICc")
+aictab_list_red <- lapply(aictab_list7, filt.tab, AIC = ΔAICc)
 
 #Remove Nuisance variables from lists for printing 
-Rm.NV <- function(aic_list){
+Rm.NV <- function(aic_list, string){
   lapply(aic_list, function(df){
-    df %>% mutate(Model = str_remove_all(Model, " \\+ Age| \\+ poly\\(tsss\\.comb, 2\\)| \\+ Sex"))
+    df %>% mutate(Model = str_remove_all(Model, string))
   })
 }
-aictab_list_print <- lapply(aictab_list7, Rm.NV)
+
+
+aictab_list_print <- lapply(aictab_list7, Rm.NV, " \\+ Age| \\+ poly\\(tsss\\.comb, 2\\)| \\+ Sex")
 aictab_list_print <- lapply(aictab_list_print, lapply, select, -Null)
 
 # Export tables -----------------------------------------------------------
-#Names to print
-names.p <- loopSppDV %>% 
-  mutate(DV = str_replace_all(DV, pattern = c("Mass.combBT" = "Mass", "Wing.comb" = "Wing"))) %>% 
-  mutate(name = paste(Species, DV)) %>% 
-  pull(name)
-#CHECK:: Ensure that names are in same order
-names.p 
-names(aictab_list_print[[1]])
 #Create titles for the tables
 titles <- data.frame(Breeding = paste(names.p, "–", "Fixed variables:", NuisVars.print),
                      FAC = names.p)
@@ -447,7 +471,7 @@ aictab_list_red_print <- lapply(aictab_list_red, Rm.NV)
 
 #Call custom function to export the AIC tables
 #All models for supplementary materials
-export.aictab(aictab_list_print, dir = "Tables/AIC_tab_all_models_")
+export.aictab(aictab_list_print, dir = "Tables/AIC_tab_all_models")
 #Just models within 4 AIC points of the top model
 export.aictab(aictab_list_red_print, dir = "Tables/AIC_tab_red_")
 
@@ -614,7 +638,8 @@ parm.df.form %>% filter(Data.set == "Br") %>%
 parm.df.form %>% filter(Data.set == "Br" & Important95 == "Y") %>% 
   arrange(desc(abs(Beta))) #%>% filter(Parameter == "Elevation")
 
-#How much additional variation is explained in each model? 
+
+## How much additional variation is explained comparing the top model to the null for each Spp * DV combination? I think this could go as a footnote at the bottom of each table 
 var.exp <- lapply(aictab_list_print, sapply, function(df){
   df %>% filter(ΔAICc == 0 | Model == "Null") %>% 
     reframe(add.var = abs(diff(R2)))
@@ -633,4 +658,3 @@ var.exp.L <- lapply(var.exp.L, function(df){
     mutate(SppDV = str_split(SppDV, "\\.") %>% 
              sapply(`[`, 1))
   })
-
