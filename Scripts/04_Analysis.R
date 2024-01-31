@@ -2,6 +2,13 @@
 #This script conducts all primary analyses, including: 1) examining nuisance variables, 2) conducting model selection & generating AIC tables, and 3) extracting parameter coefficients from important models
 
 #TO DO: 
+#Note actual number of individuals is 3402, not 3868, difference is ~400 Nightjars that are CONFIRMED out of the date range . Need to rerun ALL analyses & figures with these (e.g. corr plots too). Update manuscript as well
+#Update scripts so njdf.list.fac w/ only adults is different name, update functions if necessary 
+#In full FAC & then w/ just adult males, respectively.. 
+#Nightahwk: tsss^2, Not significant
+#Nightjar: tsss^2, tsss
+#Whip: tsss, tsss
+
 #Look more closely at residual plots and determine if you should transform any of the IVs? 
 #Anything counting the number of times a hypothesis appears is probably not really valid 
 #Want to do fewest parms within delta AIC < 2? Don't think it is necessary
@@ -13,6 +20,8 @@
 #Look back at draft w/ comments & paste over a few relevant comments
 #Look at feedback from the UBC Biol 347 class
 #See 3 specific predictions at end of the intro to see if these can be easily tested 
+
+#The intercept of each RE level comes from a larger normal distribution, so it doesn't really make sense to do a RE with just 2 levels of the RE, especially if we a priori have a prediction for which class will be larger size (Older birds). Random slopes are still best for categorical variables...? Not sure about that. Harold explained a nested RE of Species & sex, but this is different than a random slope.. 
 
 #USE THE DRY ERASE BOARD, HAVE YOUR LITTLE NOTEBOOK WITH YOU, DRAW IT OUT, TRY TO GET OUT OF JUST BANGING YOUR HEAD AGAINST THE WALL IN R. IF YOU FEEL YOURSELF SAYING WOW IM DOING A LOT OF WORK TO DO SOMETHING THAT SEEMS PRETTY EASY.. PROBABLY TIME TO TAKE A STEP BACK. 
 
@@ -27,6 +36,7 @@ lapply(njdf.list.br, function(df){
 
 # Libraries & load key dfs ------------------------------------------------
 library(AICcmodavg)
+library(lme4)
 library(MuMIn)
 library(tidyverse)
 library(naniar)
@@ -42,54 +52,81 @@ load("Rdata/Capri_dfs_12.30.23.Rdata")
 njdf.list.age <- lapply(njdf.list.br, function(x){x[x$Age != "Unk",]})
 lapply(njdf.list.age, nrow) #Nighthawk only has 50 individuals that are aged. Age is not in top model for Wing or Mass (w/ the 50 bird df), so let's leave in all individuals and remove Age from model
 
-globNuis <- drgNuis <- candNuis <- aictabNuis <- sumTM <- TM <- resid.plots <- list()
+#DELETE
+df <- njdf.list.age$`Whip-poor-will.Mass.combBT`
+m.mod <- lmer(Wing.comb ~ B.Lat + (Age | Age) + (Sex | Sex), REML = FALSE, na.action = "na.fail", data = df)
+m.mod <- lmer(Mass.combBT ~ B.Lat + poly(tsss.comb,2) + (1 | Age) + (1 | Sex), REML = FALSE, na.action = "na.fail", data = df)
+#update(m.mod, ~. + poly(tsss.comb,2)) 
+performance::icc(m.mod)
+#DELETE through here
+
+
+
+globNuis <- drgNuis <- candNuis <- frm.Nuis <- aictabNuis <- sumTM <- TM <- resid.plots <- list()
 for(i in 1:nrow(loopSppDV)){
   print(paste("i =", i))
   if(loopSppDV[i,1] == "Nightjar" | loopSppDV[i,1] == "Whip-poor-will"){
     df <- njdf.list.age[paste0(loopSppDV[i,1], ".", loopSppDV[i,2])][[1]]
-    globNuis[[i]] <- lm(as.formula(paste(loopSppDV[i,2],"~", c("B.Lat + Age + Sex"))), na.action =
-                          "na.fail", data = df)
+    globNuis[[i]] <- lmer(as.formula(paste(loopSppDV[i,2],"~", c("(1 | Age) + (1 | Sex)"))), 
+                          na.action = "na.fail", REML = FALSE, data = df)
     }
-if(loopSppDV[i,1] == "Nighthawk"){#Overwrite Nuis global; include Unk age birds for Nighthawk (via njdf.list)
+if(loopSppDV[i,1] == "Nighthawk"){ #Overwrite Nuis global; include Unk age birds for Nighthawk (via njdf.list)
   df <- njdf.list.br[paste0(loopSppDV[i,1], ".", loopSppDV[i,2])][[1]]
 #Remove age from model
-  globNuis[[i]] <- lm(as.formula(paste(loopSppDV[i,2],"~", c("B.Lat + Sex"))), na.action = "na.fail",
-                      data = df)
-  }
+  globNuis[[i]] <- lme4::lmer(as.formula(paste(loopSppDV[i,2],"~", c("(B.Lat | Sex)"))), 
+                      na.action = "na.fail", REML = FALSE, data = df)
+}
 if(loopSppDV[i,2] == "Mass.combBT"){
   df <- df %>% filter(!is.na(tsss.comb))
   globNuis[[i]] <- update(globNuis[[i]], ~. + poly(tsss.comb,2)) #Add tsss.comb to model
   }
   drgNuis[[i]] <- dredge(globNuis[[i]], m.lim = c(0,6)) #, fixed = "B.Lat"
   candNuis[[i]] <- get.models(object = drgNuis[[i]], subset = T)
-  NamesNuis <- sapply(candNuis[[i]], function(x){paste(x$call)}[2])
+  #NamesNuis <- sapply(candNuis[[i]], function(x){paste(x$call)}[2])
+  frm.Nuis[[i]] <- sapply(candNuis[[i]], formula)
+  NamesNuis <- sapply(frm.Nuis[[i]], function(frm) as.character(frm)[3])
   aictabNuis[[i]] <- aictab(cand.set = candNuis[[i]], modnames = NamesNuis, sort = TRUE)
-  TM[[i]] <- lm(as.formula(aictabNuis[[i]]$Modnames[1]), na.action = "na.fail", data = df) #Top model
+  TM[[i]] <- lmer(as.formula(paste(loopSppDV[i,2],"~", aictabNuis[[i]]$Modnames[1])), 
+                             REML = FALSE, na.action = "na.fail", data = df) #Top model
   sumTM[[i]] <- summary(TM[[i]])  #Summary of the top model
 #resid.plots[[i]] <- plot(TM[[i]], which = 1, main = paste(loopSppDV[i,1], loopSppDV[i,2]))
 ##Residual plots by Age & Sex, they all look reasonable
-  boxplot(resid(TM[[i]]) ~ Sex, data = df, main = paste(loopSppDV[i,1], loopSppDV[i,2],
-                                                        "Heterogeneity Sex"), ylab = "Residuals")
-  if(loopSppDV[i,1] == "Whip-poor-will" | loopSppDV[i,1] == "Nightjar"){
-    boxplot(resid(TM[[i]]) ~ Age, data = df, main = paste(loopSppDV[i,1], loopSppDV[i,2],
-                                                          "Heterogeneity Age"), ylab = "Residuals")
-  }
-  }
+  #boxplot(resid(TM[[i]]) ~ Sex, data = df, main = paste(loopSppDV[i,1], loopSppDV[i,2],
+                                                        #"Heterogeneity Sex"), ylab = "Residuals")
+  #if(loopSppDV[i,1] == "Whip-poor-will" | loopSppDV[i,1] == "Nightjar"){
+    #boxplot(resid(TM[[i]]) ~ Age, data = df, main = paste(loopSppDV[i,1], loopSppDV[i,2],
+                                                         # "Heterogeneity Age"), ylab = "Residuals")
+  #}
+}
+#Note singular warnings do not apply to the top model!
+
+icc_grp <- lapply(TM, performance::icc, by_group = TRUE)
+lapply(icc_grp, function(df){
+  df$ICC > .3
+})
+
 names(aictabNuis) <- paste0(loopSppDV[,1], "_", loopSppDV[,2])
 
 #Examine impact of age in nighthawks separately
-summary(lm(Mass.combBT ~ B.Lat + Age, njdf.list.age$Nighthawk.Mass.combBT))
+summary(lm(Mass.combBT ~ B.Lat * Sex, njdf.list.br$Nighthawk.Mass.combBT))
+summary(lm(Wing.comb ~ B.Lat * Sex, njdf.list.br$Nighthawk.Wing.comb))
 summary(lm(Wing.comb ~ B.Lat + Age, njdf.list.age$Nighthawk.Wing.comb))
 names(sumTM) <- paste0(loopSppDV[,1], "_", loopSppDV[,2])
 
+#DELETE -- Notice that some interactions have statistical support 
+summary(lm(Mass.combBT ~ B.Lat + Sex + B.Lat * Sex + B.Lat * Age, njdf.list.age$Nightjar.Mass.combBT))
+
+#Divergent transitions
+stan_lmer(Mass.combBT ~ B.Lat + (1 | Sex), data = njdf.list.age$Nightjar.Mass.combBT)
+lmer(Mass.combBT ~ B.Lat + (1 | Sex), data = njdf.list.age$Nightjar.Mass.combBT)
+
 #Test tsss in the FAC database 
 test.tsss <- function(df){
-  summary(lm(Mass.combBT ~ B.Lat + poly(tsss.comb, 1), data = df))
+  summary(lm(Mass.combBT ~ B.Lat + poly(tsss.comb, 1) + poly(tsss.comb, 2), data = df))
 }
 njdf.fac.mass <- njdf.list.fac[str_detect(names(njdf.list.fac), "Mass.combBT")]
 
 lapply(njdf.fac.mass, test.tsss)
-
 
 # Format & export Nuis vars --------------------------------------------------------
 #Could be worth compiling functions & source()
@@ -137,6 +174,12 @@ njdf.list.br <- lapply(njdf.list.br, function(x) {
       }
   })
 lapply(njdf.list.br, nrow)
+
+#Create a single data frame from the largest sample sizes for each species -- lose about 35-40 individuals but probably not a big deal 
+njdf.fin <- bind_rows(njdf.list.br[c(2,4,6)]) #Final data frame
+nrow(njdf.fin)
+
+capriA.red2 %>% filter(Age == "Unk") %>% count(Species)
 
 #njdf.list.fac <- lapply(njdf.list.fac, function(df) {
   if (unique(df$Species) != "Nighthawk") {
