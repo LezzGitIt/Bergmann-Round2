@@ -1,5 +1,11 @@
+##Bergmann's rule across full-annual-cycle in Caprimulgids##
 ##Data wrangling 01 -- Summarize environmental covariates 
 #This script loads environmental datasets that Elly Knight downloaded from GEE, summarizes over the relevant months, and condenses so there is a single row per uniqID
+
+#Contents
+#1) Format elevation
+#2) Average the environmental variables over the relevant months 
+#3) Merge different data sets & seasons into a single data frame of EnviCovs
 
 # Libraries & load data ---------------------------------------------------
 library(tidyverse)
@@ -7,9 +13,9 @@ library(readxl)
 library(xlsx)
 library(chron)
 
-load("Data/EnviCovs_script.Rdata")
+#load("Data/EnviCovs_script.Rdata")
 
-capriBA <- read_xlsx("Intermediate_products/Capri_BA_12.19.23.xlsx", trim_ws = TRUE) %>%
+capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.03.24.xlsx", trim_ws = TRUE) %>%
   mutate(Banding.Time = chron(times = Banding.Time))
 
 ##Bring in data sets (or load .Rdata file)
@@ -26,8 +32,8 @@ elev2 <- elev %>% mutate(Season_abb = ifelse(season == "Breed", "B.", "W.")) %>%
   pivot_wider(names_from = Season_abb, names_glue = "{Season_abb}Elev", values_from = mean) #Notice names glue so season starts the name
 
 
-# For loop for each Spp ---------------------------------------------------
-##Average the environmental variables over the relevant months (see Table 1 in manuscript) for each species
+# Average environmental covs ----------------------------------------------
+##Using for loop for each Spp, average the environmental variables over the relevant months (see Table 1 in manuscript) for each species
 Spp <- c("CONI", "EWPW", "EUNI")
 months <- list(months_br_end = c(8,9,8), months_wi_end = c(3,3,2))
 br.wc <- wi.wc <- br.evi <- wi.evi <-  br.tc <- wi.tc <- list()
@@ -70,7 +76,7 @@ for(i in 1:length(Spp)){
 
 
 # Create single data frame ------------------------------------------------
-#Create a single data frame of EnviCovs
+#Merge different data sets & seasons into a single data frame of EnviCovs
 dfs <- list(br.wc, wi.wc, br.evi, wi.evi, br.tc, wi.tc, elev2)
 names(dfs) <- c("br.wc", "wi.wc", "br.evi", "wi.evi", "br.tc", "wi.tc", "elev")
 #dfs <- lapply(dfs, function(x){setNames(x, Spp)}) Not necessary
@@ -83,8 +89,8 @@ EnviCovs2 <- EnviCovs %>% inner_join(capriBA[,c("uniqID", "Band.Number", "Bandin
 nrow(EnviCovs2) 
 
 # Export ------------------------------------------------------------------
-EnviCovs2 %>% as.data.frame() %>%
-  write.xlsx("Intermediate_products/Envi_Covs_12.30.23.xlsx", row.names = F)
+#EnviCovs2 %>% as.data.frame() %>%
+ # write.xlsx(paste0("Intermediate_products/Envi_Covs_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
 
 
 #Notes on MDR
