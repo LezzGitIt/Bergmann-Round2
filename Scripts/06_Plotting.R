@@ -19,22 +19,23 @@ library(rnaturalearthhires)
 library(smoothr)
 library(sf)
 library(ggpubr)
-library(cowplot)
 library(ggrepel)
 library(ggthemes)
 library(viridis)
 library(terra)
 library(metR)
+library(raster)
+library(cowplot)
+library(conflicted)
 ggplot2::theme_set(theme_cowplot())
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(purrr::map)
 
 #load("Rdata/Capri_dfs_07.09.24.Rdata")
+source("/Users/aaronskinner/Library/Mobile Documents/com~apple~CloudDocs/Desktop/Grad_School/Rcookbook/Themes_funs.R")
 
 #Fig2: Breeding map ------------------------------------------------------------
-#Function to round a number to the nearest number that the user specifies (with base)
-mround <- function(x,base){
-  base*round(x/base)
-}
-
 ##Summarize breeding locations spatially##
 capriA.sf <- capriA.red2 %>% 
   mutate(B.Lat = mround(B.Lat, .25), B.Long = mround(B.Long, .5)) %>%
@@ -49,8 +50,7 @@ states <- map_data("state")
 provinces <- ne_states(returnclass = "sf", country = "canada")
 
 #Set theme
-map.theme <- 
-  theme(text=element_text(size=12, family="Arial"),
+map.theme <- theme(text=element_text(size=12, family="Arial"),
         axis.ticks = element_blank(),
         axis.title = element_blank(),
         axis.text = element_blank(),
@@ -100,7 +100,7 @@ maps <- lapply(Spp$Short, function(species) {
 plot.boxplot <- function(df, Species1, var, flip = FALSE){
   df %>% filter(Species %in% c(Species1)) %>% 
     ggplot(aes(x = Species, y = .data[[var]], color = Species)) + 
-    geom_boxplot() +
+    geom_boxplot(outlier.alpha = .6) +
     #geom_point(position=position_jitterdodge(jitter.width = .4), alpha = 0.2) +
     scale_color_manual(values= colorblind_pal()(8)[c(4,6,8)], breaks = Spp$Short) +
     theme_void() +
@@ -108,6 +108,7 @@ plot.boxplot <- function(df, Species1, var, flip = FALSE){
     labs(x = NULL, y = NULL) +
     if(flip == TRUE) coord_flip()
 }
+?geom_boxplot
 
 #Latitude boxplot
 boxp.Lat <- lapply(Spp$Short, function(species) {
@@ -216,20 +217,18 @@ dens.migD.f <- ggarrange(NULL, dens.migD, dens_leg, widths = c(.1, 3, 1), nrow =
 ggarrange(fac.maps, dens.migD.f, nrow = 2, heights = c(2, 1))
 #ggsave("Plots/Final/Data_fig2/Mig.dist.png", bg = "white")
 
-# Fig3: Allometry ---------------------------------------------------------
-#Add code if this figures stays in the main text
-
-#Fig4: Map - Isoclines predicting size -----------------------------------------------------
+#Fig3: Map - Isoclines predicting size -----------------------------------------------------
 #Extract the top 'Geographic pattern' model for each hypothesis & run a linear model that will be used for predictions#
-#NOTE:: Removed elevation at present to make modeling easier
-top.lms <- map2(.x = aictab_list3$Breeding[c(1,3,5)], .y = njdf.l.br.age[c(1,3,5)], 
-                .f = \(aic.tab, df){
+load("Rdata/aictab_list3.Rdata")
+top.geo.mods.chr <- map(.x = aictab_list3$Breeding, 
+                .f = \(aic.tab){
                   top.geo <- aic.tab %>% filter(Hypothesis == "Geo") %>% 
                     slice_head() %>% 
-                    pull(Modnames) %>% 
-                    str_remove("B\\.Elev \\+ ")
-                  lm(as.formula(top.geo), data = df)
+                    pull(Modnames)
                 })
+top.lms <- map2(.x = top.geo.mods.chr, .y = njdf.l.br.age, \(str, df){
+  lm(as.formula(str), data = df)
+})
 
 #Rasterize ranges#
 ranges <- read_sf("../Spatial_files/Ranges/BOTW_9-3_Caprimulgids.shp")
@@ -269,14 +268,19 @@ spp.dfs <- pmap(.l = list(R.dfs, Ages, mean.tsss), .f = \(Rdf, Age, tsss)
                   rename(B.Lat = y, B.Long = x)
 )
 
-#Could pull elevations if needed
-coni.elev <- spp.dfs[[1]] %>% 
-  st_as_sf(coords = c("B.Long", "B.Lat"), 
-           crs = 4326) #%>%
-#get_elev_raster(z = 9)
+#Extract elevations from CONI raster
+elev_coni <- rast('../Spatial_files/ETOPO1_coni.tif')
+elevs <- terra::extract(x = elev_coni, y = spp.dfs[[1]][,c("B.Long", "B.Lat")], 
+                          ID = FALSE) %>% 
+  pull()
+spp.dfs[[1]] <- spp.dfs[[1]] %>% mutate(B.Elev = as.numeric(elevs))
+
+#Plot to ensure elevation is correct
+#ggplot(spp.dfs[[1]], aes(x = B.Long, y = B.Lat, fill = B.Elev)) +
+  #geom_tile()
 
 #Make predictions#
-pred.dfs <- map2(.x = top.lms, .y = spp.dfs, .f = \(lm, df)
+pred.dfs <- map2(.x = top.lms[c(1,3,5)], .y = spp.dfs, .f = \(lm, df)
                  df %>% mutate(pred.mass = predict(lm, newdata = df))
 )
 
@@ -293,42 +297,26 @@ pred.map <- map(seq_along(Spp$Long), \(i){
                  fill="white", colour = "white", size=0.3) +
     geom_tile(aes(x = B.Long, y = B.Lat, fill = pred.mass)) +
     geom_contour(aes(x = B.Long, y = B.Lat, z = pred.mass),
-                 color = "white", size = .4, alpha = .7) +
+                 color = "white", size = .4, alpha = .7) + #, bins = 6
     geom_text_contour(aes(x = B.Long, y = B.Lat, z = round(pred.mass, 0)), 
                       stroke = 0.1, check_overlap = TRUE, 
                       min.size = 60, skip = 0, rotate = FALSE,
                       label.placer = label_placer_fraction(frac = 0.5)) +
     coord_sf(xlim = bbox[c(1,3)], ylim = bbox[c(2,4)], expand = FALSE, crs=4326) +
     scale_fill_viridis_c(option = "magma", 
-                         name = "Mass (g)") + #, limits=c(50, 85)
-    scale_size_continuous(limits = c(1, 500), range = c(2,7), 
-                          breaks = c(20, 50, 100, 200, 350, 500), 
-                          name = "Sample size") +
-    scale_x_continuous(breaks = seq(mround(max(capriA.sf$B.Long), 5), 
-                                    mround(min(capriA.sf$B.Long), 5), by = -15)) + 
+                         name = "Mass (g)") + 
     map.theme +
-    #scale_size(limits=c(1, 777), name="Sample size") +
     #labs(title = Spp$Long[i])
-    theme(legend.position = "none") 
+    theme(legend.position = "none")
 })
-
-#Create sample size legend
-n_leg_plot <- ggplot() + geom_point(data = filter(capriA.sf, Species == Spp$Short[i]), 
-                                    aes(x = B.Long, y = B.Lat, size = n), 
-                                    pch=21, colour="red", alpha = 1) + #fill="white",
-  scale_size_continuous(limits = c(1, 500), range = c(2,7), 
-                        breaks = c(20, 50, 100, 200, 350, 500), 
-                        name = "Sample size") +
-  theme(legend.position = "bottom")
-n_leg <- ggpubr::get_legend(n_leg_plot) #sample size legend
-ggarrange(NULL, n_leg, widths = c(.3, 1))
 
 #Note NULLs and widths of 0 don't alter this figure at all, but this is how you would adjust the spacing between plots if needed
 isocline.fig <- ggarrange(pred.map[[1]], NULL, pred.map[[2]], NULL, pred.map[[3]], 
                           nrow = 1, widths = c(1, 0, 1, 0, 1))
-#ggsave("Plots/Final/Isocline/isoclines.png", bg = "white", height = 2.93, width = 8.5)
+ggsave(paste0("Plots/Final/Isocline/isoclines_fig", format(Sys.Date(), "%m.%d.%y"), ".png"), 
+              bg = "white", height = 2.93, width = 8.5)
 
-# Fig5: Parm estimates plot -----------------------------------------------------
+# Fig4: Parm estimates plot -----------------------------------------------------
 #For whatever reason the order of explanatory vars is changed when excel is uplaoded here
 #parm.df.form <- read_xlsx("Intermediate_products/parm.df.form_07.09.24.xlsx")
 
@@ -358,8 +346,8 @@ plot.parms <- function(parms.df){
           legend.position = "top",
           plot.margin = margin(10,10,8,25)) + 
     geom_hline(yintercept = 0, linetype = "dashed", linewidth = 1) + 
-    ggtitle(paste(parms.df$DV)) + 
-    guides(color = "none", shape = "none")
+    ggtitle(paste(parms.df$DV)) #+ 
+    #guides(color = "none", shape = "none")
 }
 
 #Apply custom function across list
