@@ -12,11 +12,15 @@ library(tidyverse)
 library(readxl)
 library(xlsx)
 library(chron)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(purrr::map)
 
 #load("Data/EnviCovs_script.Rdata")
 
 capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.03.24.xlsx", trim_ws = TRUE) %>%
   mutate(Banding.Time = chron(times = Banding.Time))
+?read_xlsx
 
 ##Bring in data sets (or load .Rdata file)
 wc <- read.csv("Data/EK_Envi_Vars/Covs_12.24.23/Wordclim-Buffer.csv")
@@ -94,5 +98,5 @@ nrow(EnviCovs2)
 
 
 #Notes on MDR
-#MDR = mean diurnal range, BIO2. Many of these are similar to the 19 worldclim vars (good comparison to make in manuscript, as people are familiar with these vars). Notice particularly that BrTcv is not equivalent to using the cv function (i.e compCV = cv(tavg, na.rm = T) produces slightly different results). 
+#MDR = mean diurnal range, BIO2. Many of these are similar to the 19 worldclim vars. Notice particularly that BrTcv is not equivalent to using the cv function (i.e compCV = cv(tavg, na.rm = T) produces slightly different results). 
 #Should MDR go into seasonality or temp regulation... Elly & I think TR, b/c seasonality is ACROSS the entirety of the season, MDR is within each month.

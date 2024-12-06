@@ -1,20 +1,34 @@
 ##Bergmann's rule across full-annual-cycle in Caprimulgids##
-##Data exploration 03 -- 
+##Data exploration 03 --  
 ##Code to confirm data accuracy, explore data, look for biases that could influence analysis, & produce figures in the supporting information 
 
 #Contents: Miscellaneous, see table of contents
 
 # Load libraries & dfs ----------------------------------------------------
+library(janitor)
 library(tidyverse)
+library(broom.mixed)
 library(readxl)
 library(xlsx)
 library(chron)
 library(ggrepel)
+library(ggthemes)
 library(viridis)
+library(AICcmodavg)
 library(lme4)
-map <- purrr::map
+library(nlme)
+library(sf)
+library(smatr)
+library(scales)
+library(geoR)
+library(cowplot)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(purrr::map)
+ggplot2::theme_set(theme_cowplot())
 
-#load("Rdata/Capri_dfs_3.14.24.Rdata")
+#load("Rdata/Capri_dfs_07.09.24.Rdata")
+source("/Users/aaronskinner/Library/Mobile Documents/com~apple~CloudDocs/Desktop/Grad_School/Rcookbook/Themes_funs.R")
 
 capri.df.int <- read_xlsx("Intermediate_products/capri.df.int_07.03.24.xlsx", trim_ws = TRUE) %>%
   mutate(Banding.Time = chron(times = Banding.Time))
@@ -31,6 +45,253 @@ capriBAnr <- capriBA %>% group_by(Band.Number) %>% #nr = no repeats
 capri.fac <- filter(capriBAnr, !is.na(W.Lat)) #FAC = full annual cycle
 nrow(capri.fac) #189 unique birds..
 
+
+# OLD Spatial autocorrelation DELETE ---------------------------------------------------------
+
+#NOTE:: Following along from the following website:
+#https://www.paulamoraga.com/book-spatial/geostatistical-data-1.html
+
+##NOTE:: Have to manually cycle through "bin", "cloud", "smooth"
+load("Rdata/Spatial_autocorrelation11.08.24.Rdata")
+
+#The overall top models, where Whip mass is with temperature
+top.mods <- map2(.x = aictab_list3$Breeding, .y = njdf.l.br.age, 
+                 .f = \(aic.tab, df){
+                   top.mods.chr <- aic.tab %>% 
+                     slice_head() %>% 
+                     pull(Modnames)
+                   lm(as.formula(top.mods.chr), data = df)
+                 })
+
+#Create lm objects
+top.geo.mods <- map2(top.geo.mods.chr, njdf.l.br.age, \(mods, df){
+  lm(as.formula(mods), data = df)
+})
+
+## Jitter data as some birds were inevitably captured at the same location
+# Projections suggested from ChatGPT for distance calculation based on the extent of each data set
+projections <- c(rep(5070, 2), rep(3035, 2), rep(5070, 2)) 
+
+njdf_sf <- map2(njdf.l.br.age, projections, \(df, proj){
+  #Prep spatial data
+  sf_df <- st_as_sf(df, coords = c("B.Long", "B.Lat"), 
+                    crs = 4326, remove = FALSE)
+  sf_df <- st_jitter(sf_df, amount = 0.001)
+  sf_df <- sf_df %>% st_transform(proj) #Project so the units of the variogram are in meters
+})
+
+## Generate values for create_variog function
+# Distances -- What is the appropriate spatial scale?
+distances <- c(10, 25, 50, 100, 250, 500, 1000) #Distance (in km) that variog() uses to calculate variogram (see max.dist argument)
+#distances <- seq(from = 300, to = 1000, by = 100)
+#distances <- c(.5, 1, 2, 3, 5, 7.5)
+# I'm not sure how to pick these band values.. I picked 1km when the distance == 10, so thought that a 1 / 10 ratio might be about right? 
+band <- distances / 10 #Only relevant when method = "smooth"
+DVs <- rep(c("Mass.comb", "Wing.comb"), 3)
+
+# Prep create_variog() function to cycle through distances 
+#NOTE:: Added a DVs argument, which allows testing the raw size data if desired. 
+create_variog <- function(mods, dfs, projs, DVs = NULL, dist = NULL, method = "bin", band = NULL){
+  DVs <- if (is.null(DVs)) rep(list(NULL), length(mods)) else DVs 
+  pmap(.l = list(mods, dfs, projs, DVs), .f = \(mod, df, proj, DV){
+    tm.res <- rstandard(mod) #Extract standardized residuals from top model
+    if(!is.null(DV)) { 
+      #For coding convenience, just overwrite tm.res even though name is no longer applicable 
+      tm.res <- df[[DV]] 
+    }
+    
+    # Prepare band for smooth option (ultiply by 1000 given units are in meters)
+    band_value <- if(method == "smooth") { band * 1000 } else { NULL } 
+    
+    #Run variogram. 
+    geoR::variog(coords = st_coordinates(df), #Switch between variog & variog4
+                 data = tm.res, 
+                 option = method,
+                 #pairs.min = 10,
+                 #breaks = seq(0, dist * 1000, l = 30),
+                 band = band_value,
+                 max.dist = dist * 1000) #km * 1000 m / km                 
+    #tol=pi/8) 
+  })
+}
+
+# Calculate variograms for each distance & species, manually changing method between "bin", "cloud", "smooth"
+variog_tm_bin <- map(distances, \(dist){ #Cycle through distances
+  create_variog(top.mods, njdf_sf, projections, method = "bin", dist = dist) #DVs = DVs
+})
+names(variog_tm_bin) <- distances
+
+variog_tm_cloud <- map(distances, \(dist){ #Cycle through distances
+  create_variog(top.mods, njdf_sf, projections, method = "cloud", dist = dist) 
+})
+names(variog_tm_cloud) <- distances
+
+variog_tm_smooth <- map(distances, \(dist){ #Cycle through distances
+  create_variog(top.mods, njdf_sf, projections, method = "smooth", dist = dist, band = band) 
+})
+names(variog_tm_smooth) <- distances
+
+#Base coding -- Nice to have as it easily plots output from variog4
+#Arrange all 6 plots in a single frame
+#These are not ggplots unfortunately so ggarrange() wont work
+pdf(file = "Plots/Spatial_autocorrelation/Variogram4_bin_size16.pdf", #smooth_band
+    width = 8.5, height = 11, bg = "white")
+# Each page is a given distance
+map(variog_tm_bin, \(varg){ 
+  #Plot variogram
+  par(mfrow = c(3, 2))
+  imap(varg, .f = \(varg, names) {
+    varg$u <- varg$u * 0.001
+    plot(varg, main = names) #, xlab = "Distance (km)", ylim = c(0, max(varg$v, na.rm = TRUE)))
+    #lines(varg)
+  })
+})
+dev.off()
+par(mfrow = c(1, 1))
+
+# Ggplot coding
+pdf(file = "Plots/Spatial_autocorrelation/gg_Variograms_bin_large_scale.pdf", #bin, cloud, smooth
+    width = 8.5, height = 11, bg = "white")
+map(variog_tm_bin, \(varg) { #Change between variog_tm_ bin, cloud, & smooth
+  # Create a list to store ggplot objects
+  plot_list <- imap(varg, .f = \(varg, names) {
+    varg_df <- data.frame(u = varg$u * 0.001, v = varg$v)
+    
+    # Generate the ggplot for each variogram
+    ggplot(varg_df, aes(x = u, y = v)) +
+      geom_point() + # Scatter plot of the variogram
+      geom_smooth(se = FALSE, color = "red") + # Add loess smoother
+      labs(title = names, x = "Distance (km)", y = "Semivariance") +
+      ylim(0, max(varg$v, na.rm = TRUE))
+  })
+  
+  # Arrange all plots in plot_list in a grid
+  ggarrange(plotlist = plot_list, ncol = 2, nrow = 3)
+})
+dev.off()
+
+# Moran's I----------------------------------------------------------------
+## Moran's I looks at spatial autocorrelation of model residuals -- when the morans I > 0.1 & the p-value is < 0.5 we may have issues of spatial autocorrelation that violate the assumption of independence
+# There are two primary things we must define when calculating Moran's I: 1) who are 'neighbors' (the points that we look for autocorrelation in), & 2) how do we weight the points that we define as neighbors. 
+# NOTE:: In function chooseCN() the 'Type' argument defines both how neighbors are selected & their weights. If we want more direct control of how neighbors are weighted, we can set the chooseCN(result.type = "nb"), & then control weights using nb2listw(style = ). By default the weights style = "W" , where W is row standardised (sums over all links to n)
+
+# First step for all types is to extract the coordinates
+coords <- map(njdf_sf, \(df){
+  st_coordinates(df)    
+})
+
+# >Type = 5: Distance based nearest neighbor ------------------------------
+# threshold = smallest distance (in m) to keep everything connected
+threshold <- map_dbl(coords, \(xygd){
+  give.thresh(dist(xygd)) # Huge thresholds, hundreds or thousands of km
+})
+
+# Calculate connectivity network 
+dnn_l <- map2(coords, threshold, \(xygd, thresh){
+  chooseCN(xygd, type = 5, result.type = "listw", d1 = 0.01, d2 = thresh, edit.nb = F)
+})
+
+# Calculate morans I & accompanying metrics 
+moran5 <- pmap(list(top.mods, dnn_l, threshold),
+               \(tm, dnn, thresh) {
+                 mt <- lm.morantest(tm, dnn)
+                 data.frame(type = 5, def.parm = "d2", parm.val = thresh,
+                            avg.nn = round(mean(card(dnn$neighbours)), 1), 
+                            obs.mor = mt$estimate[1], p = mt$p.value) %>% 
+                   mutate(across(where(is.numeric), ~ round(., 2)))  # Correct rounding
+               })
+# Create dataframe & remove rownames
+moran_df_dnn <- bind_rows(moran5, .id = "SppDV") %>% 
+  rownames_to_column() %>% 
+  select(-rowname)
+moran_df_dnn %>% filter(obs.mor > .1)
+
+# >Type = 6: K nearest neighbours -----------------------------------------
+# When type = 6, we conduct a K nearest neighbours analysis, where spatial autocorrelation is examined amongst the k closest points. 
+k <- setNames(5:15, c(5:15)) # Define k nearest neighbors
+
+# Calculate connectivity network 
+knn_l <- map(coords, \(xygd){
+  imap(k, \(k_val, names){
+    chooseCN(xygd, type = 6, result.type = "listw", k = k_val, edit.nb = F)  
+  })
+})
+
+# Conduct moran test for each Spp * DV top model, and for all 10 values of k
+moran6 <- map2(top.mods, knn_l, 
+               \(tm, knn_list) {
+                 imap_dfr(knn_list, \(knn, k_val) {
+                   mt <- lm.morantest(tm, knn)
+                   data.frame(type = 6, def.parm = "k", parm.val = k_val, avg.nn = round(mean(card(knn$neighbours)), 1), 
+                              obs.mor = mt$estimate[1], p = mt$p.value) %>% 
+                     mutate(across(where(is.numeric), ~ round(., 2)))  # Correct rounding
+                 })
+               }
+)
+
+# Bind rows & remove rownames
+#NOTE:: Connections can be asymmetric, meaning that e.g., when k = 1, the nn of pt A may be pt B, but nearest neighbor of pt B may be pt C. So all points have at least 1 connection, but pt B has 2 connections in this example.
+moran_df_knn <- bind_rows(moran6, .id = "SppDV") %>% 
+  rownames_to_column() %>% 
+  select(-rowname) %>% 
+  mutate(parm.val = as.numeric(parm.val))
+moran_df_knn %>% filter(obs.mor > .1)
+
+
+# >Type = 7: Inverse spatial distances ------------------------------------
+# When type = 7, the spatial weights are directly proportional to the inverse spatial distances. the argument "a" is the the exponent of the inverse distance matrix, which controls how quickly the influence of neighboring points diminishes with increasing distance. 
+a <- setNames(1:5, c(1:5)) #1 = linear decline, 2 = exponential decline (quicker decline with distance), etc
+
+# Calculate connectivity network using the inverse distance
+inv_dist_l <- map(coords, \(xygd){
+  imap(a, \(a_val, names){
+    chooseCN(xygd, type = 7, result.type = "listw", dmin = 0.5, a = a_val, edit.nb = F)  
+  })
+})
+
+# Conduct moran test for each Spp * DV top model, and for 3 values of a
+moran7 <- map2(top.mods, inv_dist_l, 
+               \(tm, inv_dist) {
+                 imap_dfr(inv_dist, \(inv_d, a_val) {
+                   mt <- lm.morantest(tm, inv_d)
+                   #NOTE:: avg.nn not possible as ALL points are considered neighbors
+                   data.frame(type = 7, def.parm = "a", parm.val = a_val, 
+                              obs.mor = mt$estimate[1], p = mt$p.value) %>%
+                     mutate(across(where(is.numeric), ~ round(., 2)))  
+                 })
+               })
+
+# Bind rows & remove rownames
+moran_df_inv <- bind_rows(moran7, .id = "SppDV") %>% 
+  rownames_to_column() %>% 
+  select(-rowname) %>% 
+  mutate(parm.val = as.numeric(parm.val))
+
+## Combine the 3 data frames 
+moran_df <- bind_rows(moran_df_dnn, moran_df_knn, moran_df_inv)
+moran_df %>% filter(obs.mor > .1)
+
+# >Exploratory -------------------------------------------------------------
+# How does the weighting influence results? Examine in nighthawk mass, where there is issue with Morans I
+nb2d <- chooseCN(coords$Nighthawk_Mass.combBT, type = 6, result.type = "nb", k = 15, edit.nb = F)  
+
+style <- c("W", "B", "C", "U", "minmax", "S") #How do we weight those that are our neighbors?
+knn_weights <- map(style, \(sty){
+  nb2listw(nb2d, style = sty)
+})
+names(knn_weights) <- style
+
+moran_weights_l <- map(knn_weights, \(knn_w, names){
+  mt <- lm.morantest(top.mods[[1]], knn_w)
+  data.frame(type = 6, obs.mor = mt$estimate[1], p = mt$p.value) %>%
+    mutate(across(where(is.numeric), ~ round(., 2)))  
+})
+
+# Essentially there is no difference between different weighting approaches
+moran_df_conim <- bind_rows(moran_weights_l, .id = "weights") %>% 
+  rownames_to_column() %>% 
+  select(-rowname)
+moran_df_conim
 
 # Explore SA / V & tsss^2 -------------------------------------------------
 #Note that although SA / V is not significant in any case that could imply that is interesting in of itself as it says something about the rate that mass & wing are increasing together
@@ -60,14 +321,15 @@ map(njdf.list.br[c(1,3,5)], function(df) {
   round(cor(df[,c("B.Lat", "Mass.combBT", "tsss.comb")]), 2)
 })
 
-map(njdf.l.br.age[c(1,3,5)], function(df) {
+imap(njdf.l.br.age[c(1,3,5)], function(df, names) {
   df <- cbind(df, poly(df$tsss.comb, 2, raw = FALSE)) %>% 
     rename_with(.cols = c("1","2"), ~c("tsss", "tsss2"))
   summary(lm(Mass.combBT ~ tsss, data = df))
-  #ggplot(data = df, aes(x = tsss.comb, y = B.Lat)) + 
-    #geom_point() +
-    #stat_smooth(method = "lm", formula = y ~ poly(x, 2), se = F) +
-    #xlim(c(0, 8.5))
+  ggplot(data = df, aes(x = tsss.comb, y = B.Lat)) + 
+    geom_point() +
+    stat_smooth(method = "lm", se = F) + #, formula = y ~ poly(x, 2)
+    xlim(c(0, 8.5)) +
+    labs(title = names)
 })
 
 map(njdf.l.br.age[c(1,3,5)], function(df) {
@@ -354,8 +616,6 @@ ggplot(data = capri.df.int, aes(x = Year, y = B.Lat)) +
 ggsave("Plots/Supplementary/Temporal_sampling_Blat.png", bg = "white")
 
 euni.df <- capri.df.int %>% filter(Species == "Nightjar" & Age != "Unk" & Sex != "U" & Year > 1989) 
-euni.df.mass <- euni.df %>% filter(!is.na(tsss.comb))
-nrow(euni.df)
 
 #Visualize EUNI
 ggplot(data = euni.df, aes(Year, B.Lat)) + 
@@ -370,18 +630,56 @@ ggplot(data = euni.df, aes(x = Year, y = Wing.Chord)) +
   geom_point(alpha = .3) + 
   geom_smooth() #method = "lm"
 
-
-
-#Confirm effects are important even controlling for lat, sex, & age. Note increase in wing, but not in mass, suggesting shape-shifting through time
-euni.yr.m <- lm(Mass ~ scale(Year) + B.Lat + Age + Sex + poly(tsss.comb, 2), data = euni.df.mass)
-euni.yr.w <- lm(Wing.Chord ~ scale(Year) + B.Lat + Age + Sex, data = euni.df)
-summary(lm(B.Lat ~ scale(Year), data = euni.df)) 
-
-tidy(euni.yr.m, conf.int = TRUE, conf.level = .95) #Create tidy table of parameter estimates
-
 #For now, I think >2010 is best option
 capri.df.int <- capri.df.int %>% filter(Year >= 2010 )
 euni.df <- euni.df %>% filter(Year >= 2010)
+
+# >Climate change model ---------------------------------------------------
+#Examine whether birds are changing size or shape through time#
+#Pull euni.fin df from 02_DW_Merge_dfs script
+euni.cc <- euni.fin %>% filter(Age != "Unk")
+euni.cc.mass <- euni.cc %>% filter(!is.na(tsss.comb))
+
+#Confirm effects are important even controlling for lat, sex, & age. Note increase in wing, but not in mass, suggesting shape-shifting through time
+euni.yr.m <- lm(Mass ~ scale(Year) + B.Lat + Age + Sex + poly(tsss.comb, 2), data = euni.cc.mass)
+summary(euni.yr.m)
+euni.yr.w <- lm(Wing.Chord ~ scale(Year) + B.Lat + Age + Sex, data = euni.cc)
+summary(euni.yr.w)
+mods.list <- list(euni.yr.m, euni.yr.w)
+
+#Create tidy table of parameter estimates
+cc.tables <- map(mods.list, \(mod){
+  tidy(mod) %>%
+    rename_all(~ c("Term", "Estimate", "Standard error", "Statistic", "P value")) %>%
+    mutate(Term = str_replace_all(
+      Term, pattern = c("poly\\(tsss\\.comb, 2\\)2" = "Time since sunset²",
+                        "poly\\(tsss\\.comb, 2\\)1" = "Time since sunset",
+                        "SexM" = "Male", 
+                        "AgeYoung" = "Young", 
+                        "B.Lat" = "Latitude", 
+                        "scale\\(Year\\)" = "Year",
+                        "\\(Intercept\\)" = "Intercept"))) %>% 
+    mutate(across(where(is.numeric) & !matches("P value"), \(x) round(x, 2)))
+})
+names(cc.tables) <- c("Mass", "Wing Length")
+
+#Generate R2 values & degrees of freedom, and turn into footnotes dataframe#
+r2_df <- map(mods.list, \(mod){
+  data.frame(R2 = glance(mod)$r.squared, df = glance(mod)$df.residual)
+}) %>% bind_rows()
+  
+footnotes <- data.frame(Metric = c("Mass", "Wing"), R2 = r2_df$R2, df = r2_df$df) %>% 
+  mutate(R2 = round(R2, 3))
+             
+#Export tables#
+#tab_dfs(
+  x = cc.tables,
+  titles = c("Mass", "Wing Length"),
+  footnotes = paste0(paste(rep("R² =", 2), footnotes[, 2]), "; ", 
+                    paste(rep("df =", 2), footnotes[, 3])),
+  show.footnote = TRUE,
+  alternate.rows = TRUE, 
+  #file = paste0("Tables/climate_change_euni", format(Sys.Date(), "%m.%d.%y"), ".doc"))
 
 # Banding date effect -----------------------------------------------------
 #Ensure banding dates are reasonable, notice all most extreme banding dates are EUNI
@@ -602,9 +900,7 @@ Spp %>% group_by(Project) %>%
             min = min(Temp.res.mig,na.rm = T))
 
 # Allometric scaling -----------------------------------------------------
-###SMI -- scaled mass index 
 #SMA is standard in studies of allometry. This youtube video explains what's going on very well, and the difference between OLS regression. Go to SMA vs OLS section of video, particularly around 9:05 and see subsequent plots. In SMA trying to minimize the distance to the line in both the X and Y axes (instead of just the Y axis). This different method to estimate residuals results in different lines of best fit. https://www.youtube.com/watch?v=dvXEcYYnask&ab_channel=MethodsinExperimentalEcologyI
-library(smatr)
 #vignette(package = "smatr") 
 
 Spp <- c("Nighthawk", "Nightjar", "Whip-poor-will")
@@ -620,7 +916,6 @@ names(modWM) <- Spp
 modWM
 
 #NOTE that ggplot has no default method for plotting SMA (e.g., method = "sma"). Could try the function lmodel2() which can do SMA, but things get confusing when you log() the morphological variables. It is easiest to just adapt the base R plotting
-library(scales)
 plot_sma <- function(Spp){
   labs <- c(xlab = "Mass [log scale]", ylab = "Wing [log scale]")
   if(Spp == "Nightjar"){
@@ -650,29 +945,33 @@ dev.off()
 #Generate logged & non-logged models w/ all species for plotting lines & extracting slope coefficients on the non-logged scale
 mod.comb.log <- sma(Wing.comb ~ Mass.comb * Species, data = njdf.br.am, log = "xy", robust = TRUE)
 mod.comb <- sma(Wing.comb ~ Mass.comb * Species, data = njdf.br.am, robust = TRUE)
+?sma
 
 #Generate distinct models for CONI vs EUNI & EWPW for additional plotting flexibility
 ewpw.coni.allometry <- njdf.br.am %>% filter(Species != "Nightjar")
 euni.allometry <- njdf.br.am %>% filter(Species == "Nightjar")
-mod.ewpw.coni <- sma(Wing.comb ~ Mass.comb * Species, data = ewpw.coni.allometry, log = "xy", robust = TRUE)
+mod.ewpw.coni <- sma(Wing.comb ~ Mass.comb * Species, data = ewpw.coni.allometry,  log = "xy", robust = TRUE)
 mod.euni <- sma(Wing.comb ~ Mass.comb , data = euni.allometry, log = "xy", robust = TRUE)
 #Would be cool to interpret the intercepts and slopes.. The intercepts don't really make sense (a bird of weight 0 has wing of e.g., 94, 140, 126?), & intercept seems like species that are bigger have larger intercepts. On the other hand, slopes are helpful & suggest that nightjars increase in wing length more slowly than nighthawks or whip-poor-wills 
 summary(mod.comb)
 
-#Plot#
-#Green = nighthawk, blue = nightjar, pink = whip-poor-will
+#Final plot#
+#png(paste0("Plots/Allometry/Allometry_am_transformed_", format(Sys.Date(), "%m.%d.%y"), ".png"))
+#Green = nighthawk, blue = European nightjar, pink = whip-poor-will
 #Start EWPW & Nighthawk points darker 
-plot(mod.ewpw.coni, col = alpha(colorblind_pal()(8)[c(4,8)], .3), 
+plot(mod.ewpw.coni, col = alpha(colorblind_pal()(8)[c(4,8)], .4), log = "xy",
      type = "p", xlab = "Mass [log scale]", ylab = "Wing [log scale]") 
 #Add in EUNI points lighter
-plot(mod.euni, col = alpha(colorblind_pal()(8)[c(6)], .1), 
+plot(mod.euni, col = alpha(colorblind_pal()(8)[c(6)], .1), log = "xy",
      type = "p", xlab = "Mass [log scale]", ylab = "Wing [log scale]", add = T) #[log scale]
 #Plot lines on top
 plot(mod.comb.log, type = "l", lwd = 2, col = colorblind_pal()(8)[c(4,6,8)], add = T)
 
 #Create labels for top of plot
-top.labs <- paste(paste(row.names(coef(mod.comb.log)), "b =", round(coef(mod.comb.log)$slope, 2)), collapse = "; ")
-mtext(top.labs, side = 3, adj = 0, cex = 1.3)
+Spp$Long[2] <- "European nightjar"
+top.labs <- paste(Spp$Long, "b =", round(coef(mod.comb.log)$slope, 2), collapse = "; ") #paste(row.names(coef(mod.comb.log))
+mtext(top.labs, side = 3, adj = 0, cex = 1.1)
+#dev.off()
 
 #Tried several other options that I couldn't get to work, see Warton et al. 2012 
 #shift = TRUE, multcomp = TRUE, multcompmethod = "adjust"

@@ -12,20 +12,20 @@
 
 # Libraries ---------------------------------------------------------------
 library(tidyverse)
+library(stringi)
 library(naniar)
 library(readxl)
 library(xlsx)
 library(chron)
 library(lutz)
 library(suncalc)
-#library(stringi) Think this can be deleted (part of tidyverse?)
 library(zoo) 
 library(geosphere)
 library(conflicted)
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
-#load("Data/njdf_script.Rdata")
+#load("Rdata/njdf_script.Rdata")
 
 # Load and format data ----------------------------------------------------
 #Format data that will allow for seamless join into a single df
@@ -108,7 +108,7 @@ LJeunj <- LJeunj %>% mutate(Species = "EUNI",
                             Project = "LJdenmark", 
                             B.dep = ifelse(B.dep == "1-sep", "9/1/10", B.dep))
 
-# Create single df --------------------------------------------------------
+# Create single df & export for repository----------------------------------------------------
 #Create list, adjust columns and colnames, create single dataframe, continue formatting
 njdfs_all <- list(EKconi, ASewpw, AKewpw, MBewpw, JHeunj, LJeunj, GCeunj, GNeunj, REeunj, ITeunj, Various)
 names(njdfs_all) <- c("EKconi", "ASewpw", "AKewpw", "MBewpw", "JHeunj", "LJeunj", "GCeunj", "GNeunj", "REeunj", "ITeunj", "Various")
@@ -118,6 +118,12 @@ capri.df <- rbind(njdfs_all[[1]], njdfs_all[[2]], njdfs_all[[3]],njdfs_all[[4]],
 #lapply(njdfs_all, function(x){head(x$Banding.Date)})
 #lapply(njdfs_all, function(x){parse_date_time(x[,c("Banding.Date")], c("mdy", "ymd"))})
 
+#Export for repository
+capri.df %>% filter(Project != "Greg_EDB") %>%
+  select(-Project) %>% 
+  write.xlsx(paste0("../../Writtens/Final_GEB/Repository/Data/Capri_df_combined_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = FALSE, showNA = FALSE, sheetName = "Data")
+
+# Format ------------------------------------------------------------------
 #Adjust time & date
 capri.df <- capri.df %>% #Few individuals removed w/ no B.Lat
   #mutate(Banding.Date = str_trim(Banding.Date)) %>% #Issue with creation of uniqID.. For whatever reason this causes issues when linking up with EnviCovs df down the line
@@ -166,7 +172,7 @@ day.caps <- capri.df %>%
   arrange(Band.Number, Project, Banding.Time) 
 day.caps %>% filter(!is.na(W.Lat))
 
-#Remove 13 individuals banded during the day. DO NOT REMOVE FOR ROWID CHECKELLY DF 
+#Remove 13 individuals banded during the day (improbable capture time). 
 capri.df2 <- capri.df %>% 
   filter(hms(Banding.Time) < hms("08:05:00") | 
            hms(Banding.Time) > hms("18:00:00") | 
@@ -202,7 +208,7 @@ nrow(capri.df3)
 ##See Elly's script for more information 
 
 #Add in row_number here to serve as primary key for linking back up with tsss
-capri.df3 <- capri.df3 %>% mutate(rowID = row_number()) #OLD: 8.14.23 Adding row_number() here, but notice row_number was previously added above.
+capri.df3 <- capri.df3 %>% mutate(rowID = row_number())
 
 ## Format for suncalc functions
 df <- capri.df3 %>% summarize(date = as.Date(Banding.Date), 
@@ -258,7 +264,7 @@ capri.df4 <- transform(capri.df4, Str8line =
                                        cbind(capri.df4$W.Long, capri.df4$W.Lat)) / 1000)
 
 # Band.Age -------------------------------------------
-#Given that some individuals were captured multiple times we want to incorporate that information to have a better estimate of size. Sizes differ by age so we want to combine morphological variables of individuals that are the same age.
+#Given that some individuals were captured multiple times we want to incorporate that information to have a better estimate of body size. Sizes differ by age so we want to combine morphological variables of individuals that are the same age.
 
 #Create Band.Age variable, where individuals of the same age will have the same 'Band.Age', and use mutate to average morphologies (and time since sunset cov) by Band.Age
 capri.df4 <- capri.df4 %>% mutate(Band.Age = paste0(Age, "_", Band.Number)) %>%
@@ -308,4 +314,3 @@ length(unique(capriBA$uniqID))
 #Write capriBA.. Note uniqID is truly unique, but this df will still be further filtered
 capriBA %>% as.data.frame() %>%
   write.xlsx(paste0("Intermediate_products/Capri_BA_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
-

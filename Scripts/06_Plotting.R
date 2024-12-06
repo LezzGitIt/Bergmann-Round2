@@ -1,5 +1,5 @@
 ##Bergmann's rule across full-annual-cycle in Caprimulgids##
-##Plotting 05-- 
+##Plotting 06-- 
 #This script conducts all plotting for the main text of the manuscript, outside of Fig 1 (produced by Alicia in Adobe Illustrator) 
 #NOTE:: Code to produce figures in the supporting information document can be found in the script '03_Data_exploration.R'
 

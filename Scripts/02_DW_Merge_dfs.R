@@ -17,7 +17,9 @@ library(xlsx)
 library(chron)
 library(gridExtra)
 library(mvnormtest)
-map <- purrr::map
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(purrr::map)
 
 #1. Filter capriBA ---------------------------------------------------------------
 capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.03.24.xlsx", trim_ws = TRUE) %>%
@@ -31,7 +33,6 @@ capriBAnr <- capriBA %>% group_by(Band.Number) %>% #nr = no repeats
   arrange(is.na(W.Lat), Age) %>% 
   slice_head() %>% 
   ungroup()
-nrow(capriBAnr)
 
 #Filter based on date
 euniRes <- capriBAnr %>% filter(Species == "Nightjar" & Band.md > as.POSIXct("2024-05-16") & Band.md < as.POSIXct("2024-08-01") & is.na(W.Lat))
@@ -40,9 +41,8 @@ coni.ewpw <- capriBAnr %>% filter(Species != "Nightjar" & Band.md > as.POSIXct("
 capriRes <- rbind(euniRes, euniFAC, coni.ewpw)
 nrow(capriRes) #capri residents
 
-#Remove last few things
+#Remove last few things#
 #Remove Greg's EDB project due to lack of precision in decimals, Unknown sex, and year < 2010.
-
 #Sex is an important covariate in all models, and latitudes are sampled about evenly after 2010
 capri.fin <- capriRes %>% filter(Project != "Greg_EDB" & Sex != "U" & Year >= 2010)
 nrow(capri.fin)
@@ -69,11 +69,10 @@ names(HypVars) <- c("Geo", "TR", "Prod", "Seas", "Mig.Dist") #"Post.Hoc"
 HypVarsDf <- bind_rows(HypVars, .id = "Hypothesis")
 HypVarsDf <- HypVarsDf %>% mutate(Full = c("Latitude", "Longitude", "Elevation", "Solar radiation", "Temperature", "EVI", "Precipitation", "EVI CV", "Precipitation CV", "Temperature CV", "Migratory distance")) #"Temperature", "Precipitation"
 
-capriA.red <- capriA %>% select(c("uniqID","Band.Number","Project","Species","Age","Sex", "tsss.comb", "Wing.comb", "Mass.combBT", "Mass.comb", "Mig.dist", paste0("B.", HypVarsDf$Vars[1:10]), paste0("W.", HypVarsDf$Vars[1:10])))
+capriA.red <- capriA %>% select(c("uniqID","Band.Number","Project", "Site.name", "Species","Age","Sex", "tsss.comb", "Wing.comb", "Mass.combBT", "Mass.comb", "Mig.dist", paste0("B.", HypVarsDf$Vars[1:10]), paste0("W.", HypVarsDf$Vars[1:10])))
 
 #Remove a few coastal individuals (from breeding grounds) that have no environmental data 
 capriA.red2 <- capriA.red %>% drop_na(starts_with("B")) 
-nrow(capriA.red2) #uniqID has changed slightly, likely due to updated packages or something. This caused a few additional IDs to not match, but not a big deal none of them have winter data.
 
 capri.fac <- capriA.red2 %>% filter(!is.na(W.Lat))
 nrow(capri.fac)
@@ -204,13 +203,11 @@ i <- c(1,3,5)
 #map(i, plot_and_save)
 
 # 10. Export -------------------------------------------------------------
-nrow(capriA.red2)
 #capriA.red2 %>% as.data.frame() %>%
  #write.xlsx(paste0("Intermediate_products/capriA.red_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
 
-nrow(capri.fac)
 #capri.fac %>% as.data.frame() %>%
  # write.xlsx(paste0("Intermediate_products/capri_fac", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
 
-rm(list= ls()[!(ls() %in% c("njdf.list.br", "njdf.list.br.ns", "njdf.list.fac", "njdf.l.br.age", "njdf.br.am", "capriA.red2", 'capri.fac', "HypVars", "HypVarsDf", "loopSppDV"))])
+#rm(list= ls()[!(ls() %in% c("njdf.list.br", "njdf.list.br.ns", "njdf.list.fac", "njdf.l.br.age", "njdf.br.am", "capriA.red2", 'capri.fac', "HypVars", "HypVarsDf", "loopSppDV"))])
 #save.image(paste0("Rdata/Capri_dfs_", format(Sys.Date(), "%m.%d.%y"), ".Rdata"))

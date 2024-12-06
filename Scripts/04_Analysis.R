@@ -8,10 +8,12 @@
 # 3) Examine residuals of top models to ensure model assumptions are met
 # 4) Conduct model averaging and extract parameter coefficients from important models
 
+#NOTE:: There are two places where one must manually change the input depending on if using just adult males or the full annual cycle data set (see manuscript for more details). These are indicated with the following text: 'CHANGE FAC DATA SET HERE IF DOING ADULT MALES'
+
 # Libraries & load key dfs ------------------------------------------------
 library(AICcmodavg)
 library(lme4)
-library(MuMIn)
+library(MuMIn) #Does accept lmer models fortunately 
 library(tidyverse)
 library(naniar)
 library(readxl)
@@ -20,9 +22,12 @@ library(stringi)
 library(sjPlot)
 library(broom)
 library(mapview)
-map <- purrr::map
+library(conflicted)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(purrr::map)
 
-#load("Rdata/Capri_dfs_07.09.24.Rdata")
+load("Rdata/Capri_dfs_07.09.24.Rdata")
 
 # Nuis vars mod selection -----------------------------------------------
 #Goal is to examine the impact of nuisance variables Age, sex, and time since sunset (tsss; only on Mass) for each Spp * DV combination. We include tsss as a quadratic variable based on visualization (see Data exploration.R script)
@@ -429,6 +434,9 @@ gen.cols <- function(list){
 aictab_list3 <- lapply(aictab_list2, gen.cols)
 aictab_list3$Breeding <- lapply(aictab_list3$Breeding, function(df) {df %>% select(-Season)})
 
+#Export as aictab is needed to generate the top geographic model for figure 3
+save(aictab_list3, file = "Rdata/aictab_list3.Rdata")
+
 # Format tables -----------------------------------------------------------
 #Apply custom only.IVs function to display only the IVs & make them not Season specific
 aictab_list4 <- lapply(aictab_list3, only.IVs)
@@ -745,7 +753,9 @@ capri.fac %>% group_by(Species) %>%
             range = max - min)
 
 # >Misc mess around --------------------------------------------------------
-#To help write the manuscript and understand what's going on 
+#This code is to help write the manuscript and understand what's going on with data#
+
+#Inspect breeding & winter latitudes
 map(njdf.list.br.ns, \(df) {
   df %>% 
     filter(!is.na(B.Lat)) %>% #!is.na(W.Lat) & 
@@ -758,8 +768,16 @@ map(njdf.list.br.ns, \(df) {
     )
 })
 
+#Create histograms
+imap(njdf.list.br.ns[c(2,4,6)], \(df, name){
+  par(mfrow = c(2, 1))
+  hist(df$B.Lat, main = paste(name, "B.Lat"), 
+       sub = paste("range =", round(diff(range(df$B.Lat)),2)))
+  hist(df$W.Lat, main = paste(name, "W.Lat"), 
+       sub = paste("range =", round(diff(range(df$W.Lat, na.rm = TRUE)),2)))
+})
 
-#Challenge with ages
+#Try to understand what is going on with other variables 
 summary(lm(Wing.comb ~ B.Elev + B.Lat + Sex + Age, data = njdf.list.br.ns[[c(4)]]))
 #Precipitation estimate is negative in EWPW & EUNI, where more rain leads to smaller birds. CV of EVI is significant in the predicted direction in CONI & EUNI 
 map(njdf.list.br.ns[c(1,3,5)], \(df){ #B.Tavg + B.Prec # B.EviCV
@@ -768,6 +786,11 @@ map(njdf.list.br.ns[c(1,3,5)], \(df){ #B.Tavg + B.Prec # B.EviCV
 #Precipitation estimate is negative in EWPW & EUNI. CV of EVI is significant in the predicted direction in EWPW & EUNI 
 map(njdf.list.br.ns[c(2,4,6)], \(df){
   summary(lm(Wing.comb ~ B.EVI + Sex + Age, data = df))
+})
+
+#Explore elevational ranges
+map(njdf.list.br.ns[c(2,4,6)], \(df){
+  quantile(df$B.Elev, probs = c(.025, .975))
 })
 
 
