@@ -1,10 +1,10 @@
 # Evaluation of Bergmann's Rule in Migratory Nightjars
 
-This repository contains updated and additional code associated with the paper *"Evaluation of Bergmann's Rule in Migratory Nightjars"* (in review at the Journal of Biogeography). The study investigates whether three migratory nightjar species conform to Bergmann's rule, and explores the environmental and geographical factors influencing body size across their breeding and wintering grounds. The study uses GPS tracking data to assess competing hypotheses explaining variation in body size for each species, based on their breeding and wintering locations.
+This repository contains updated and additional code associated with the paper *"Environmental pressures on the breeding grounds drive Bergmannian clines in nightjars* (in review at the Journal of Biogeography). The study investigates whether three migratory nightjar species conform to Bergmann's rule, and explores the environmental and geographical factors influencing body size across their breeding and wintering grounds. The study uses GPS tracking data to assess competing hypotheses explaining variation in body size for each species, based on their breeding and wintering locations.
 
 ## Overview
 
-This repository contains the full code for the project, which contains additional scripts that were used for data exploration and model validation. If interested in reproducing the analysis associated with *"Evaluation of Bergmann's Rule in Migratory Nightjars"*, see this Dryad link [LINK AVAILABLE UPON PUBLICATION].
+This repository contains the full code for the project, which contains additional scripts that were used for data exploration and model validation. If interested in reproducing the analysis associated with *"Environmental pressures on the breeding grounds drive Bergmannian clines in nightjars"*, see this Dryad link [LINK AVAILABLE UPON PUBLICATION].
 
 **Research Questions**:
 - Do migratory nightjar species adhere to Bergmann's rule across their migratory ranges?
@@ -25,9 +25,9 @@ This repository contains the full code for the project, which contains additiona
 
 ### How to Run
 
-To reproduce the analysis associated with *"Evaluation of Bergmann's Rule in Migratory Nightjars"*
+To reproduce the analysis associated with *"Environmental pressures on the breeding grounds drive Bergmannian clines in nightjars"*
 
-1. Download the data and scripts from Dryad 
+1. Download the data and scripts from Dryad [LINK AVAILABLE UPON PUBLICATION]
 
 2. Install required R packages:
     ```R
@@ -42,6 +42,7 @@ To reproduce the analysis associated with *"Evaluation of Bergmann's Rule in Mig
 install.packages("requiRements")
 requiRements::install(packages)
     ```
+    
 3. Load the scripts and run to reproduce the analysis and all figures in the main text:
     ```R
 script_files <- list.files(path = "Scripts", pattern = "\\.R$", full.names = TRUE)
