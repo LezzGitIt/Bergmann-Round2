@@ -702,7 +702,8 @@ parm.tbl.print.l %>%
 
 # Quick stats paper -------------------------------------------------------
 #Examine the number of models compared in each dataset, and the number of breeding vs. winter models in the FAC dataset
-lapply(aictab_list, lapply, nrow)
+sapply(aictab_list, lapply, nrow)
+
 21 + 21 + 17 + 17 + 20 + 20 #Breeding
 40 + 42 + 36 + 38 + 34 + 36 #FAC
 #Wintering with 10 more models overall
@@ -755,16 +756,27 @@ capri.fac %>% group_by(Species) %>%
 # >Misc mess around --------------------------------------------------------
 #This code is to help write the manuscript and understand what's going on with data#
 
+# Relationship between Delta AIC & Wi
+# NOTE:: AIC values from Table 2: Whip-poor-will Mass 
+tibble(Delta_AIC = c(0.00, 0.26, 1.78, 12.90), 
+       Wi = c(0.42, 0.37, 0.17, 0.00)) %>% 
+  ggplot(aes(x = Delta_AIC, y = Wi)) +
+  geom_point() + 
+  geom_smooth() + 
+  labs(y = "Model probability (Wi)") +
+  geom_vline(xintercept = c(2,4), linetype = "dashed")
+
+
 #Inspect breeding & winter latitudes
 map(njdf.list.br.ns, \(df) {
   df %>% 
-    filter(!is.na(B.Lat)) %>% #!is.na(W.Lat) & 
+    filter(!is.na(B.Lat) & !is.na(W.Lat)) %>%  
     summarize(
       IQR_B.Lat = IQR(B.Lat),
       IQR_W.Lat = IQR(W.Lat, na.rm = TRUE), 
-      diff.Elev = diff(range(B.Elev))
-      #diff.B = diff(range(B.Lat)),
-      #diff.W = diff(range(W.Lat))
+      diff.Elev = diff(range(B.Elev)),
+      diff.B = diff(range(B.Lat)),
+      diff.W = diff(range(W.Lat), na.rm = T)
     )
 })
 

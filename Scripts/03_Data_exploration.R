@@ -20,8 +20,9 @@ library(nlme)
 library(sf)
 library(smatr)
 library(scales)
-library(geoR)
+#library(geoR)
 library(cowplot)
+library(conflicted)
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
@@ -512,6 +513,226 @@ gg_plot(df = capriA.red2, x = B.Lat, y = tsss.comb) + #method = "lm"
 capriA.red2 %>% group_by(Species) %>% 
   summarize(cor.lat.tsss = cor(B.Lat, tsss.comb, use = "complete.obs"), n = n())
 
+
+# Recaptures --------------------------------------------------------------
+# Elly sent this dataframe of just recaptures, but it is not necessary as these individuals are already contained in the primary dataset 
+if(FALSE){
+  Coni_recap <- read.csv("Data/CONI_MCPv4_recaptures.csv") %>% tibble() %>% 
+    mutate(Wing.Chord = Wing * 10, 
+           Band.md = format(as.Date(Date), "%m/%d"), 
+           Band.md = as.Date(Band.md, "%m/%d") - lubridate::years(1), 
+           Species = "Nighthawk") %>% 
+    rename(Band.Number = Band) %>% 
+    select(Species, Band.Number, Year, Band.md, Mass, Wing.Chord)
+}
+  
+
+# >Within year ------------------------------------------------------------
+# For wing, we want to examine measurement consistency within year. We also calculate for mass 
+# Create dataframe of recaps 
+Dv <- setNames(c("Mass", "Wing.Chord"), c("Mass", "Wing.Chord"))
+recap2 <- map(Dv, \(DV){
+   capri.df.int %>%
+    #filter(Species != "Nighthawk") %>%
+    #bind_rows(Coni_recap) %>%
+    drop_na(Band.Number, Band.md, !!sym(DV)) %>%
+    group_by(Band.Number, Year) %>%
+    mutate(N = n()) %>% 
+    filter(n() > 1) %>%
+    ungroup() %>%
+    arrange(Band.Number, Band.md)
+})
+  
+# Plot mass & wing change for recaps within year 
+axis_labels <- c("Mass", "Wing chord (mm)")
+plot_recaps <- pmap(list(recap2, Dv, axis_labels), \(df_dv, DV, labs){
+  recap_coni <- df_dv %>% filter(Species == "Nighthawk")
+  recap_other <- df_dv %>% filter(Species != "Nighthawk")
+  ggplot() + 
+    geom_line(
+      data = recap_other,  alpha = 0.5,
+      aes(x = Band.md, y = !!sym(DV), 
+          color = Species,
+          group = interaction(Band.Number, Year)) 
+      ) + 
+    geom_point(data = recap_other, aes(x = Band.md, y = !!sym(DV), 
+                                       color = Species), alpha = 0.2) + 
+    geom_line(data = recap_coni, aes(x = Band.md, y = !!sym(DV), 
+                                     color = Species, group = interaction(Band.Number, Year)), alpha = 0.7) + 
+    geom_point(data = recap_coni, 
+               aes(x = Band.md, y = !!sym(DV), color = Species), alpha = 0.4) +
+    scale_color_manual(values = colorblind_pal()(8)[c(4,6,8)]) + 
+    labs(x = "Month", y = labs) #title = "Within season"
+})
+
+# Print the wing recaps
+plot_recaps[[2]]
+ggsave("Plots/Supplementary/Wing_recaps.png", bg = "white")
+
+
+# >Across years -----------------------------------------------------------
+## ICC -- For mass, examine correlation of mass for repeat captures using a mixed effects model
+
+# Function to subset the data across years
+Subset_data <- function(data, DV, Species = NULL) {
+  if (!is.null(Species)) {
+    data <- data %>% 
+      filter(Species == {{ Species }})
+  }
+  data %>%
+    filter(
+      Band.md > as.Date("2024-05-15") & Band.md < as.Date("2024-08-01")
+      ) %>% 
+    filter(Age == "Adult" & !is.na(tsss)) %>%
+    drop_na(Band.Number, {{ DV }}) %>%  
+    slice_sample(n = 1, by = c(Band.Number, Year)) %>% 
+    group_by(Band.Number) %>% 
+    filter(n() > 1) %>%
+    ungroup() %>%
+    arrange(Band.Number, Year)
+}
+
+## Plot mass of repeat captures across years
+Mass_ay <- Subset_data(capri.df.int, DV = "Mass") 
+Mass_plot <- Mass_ay %>% 
+  arrange(Band.Number, Band.md) %>%
+  ggplot(aes(x = Band.md, y = Mass, color = Species, group = Band.Number)) +
+  geom_line(alpha = 0.5) + 
+  geom_point(alpha = 0.2) + 
+  scale_color_manual(values = colorblind_pal()(8)[c(6,8)]) +
+  labs(x = "Month", y = "Mass (g)")
+
+# Calculate the ICC from a model
+get_icc <- function(model) {
+  estimates <- broom.mixed::tidy(model) %>%
+    filter(effect == "ran_pars") %>%
+    pull(estimate)
+  
+  icc_value <- estimates[1]^2 / (estimates[1]^2 + estimates[2]^2)
+  return(icc_value)
+}
+
+# Combine previous functions -- subset the data, fit the model, and compute ICC
+Subset_mod_icc <- function(DV, Species) {
+  recap_icc_sample <- Subset_data(data = capri.df.int, DV = {{ DV }}, Species = {{ Species }})
+  formula <- as.formula(paste(DV, "~ scale(B.Lat) + scale(Band.md) + poly(tsss,2) + (1 | Band.Number)"))
+  mod_mass <- lmer(formula, data = recap_icc_sample)
+  return(get_icc(mod_mass))
+}
+
+# Run model 100 times to incorporate variability of slice_sample()
+set.seed(12)
+icc_euni <- map_dbl(1:100, ~ Subset_mod_icc(DV = "Mass", Species = "Nightjar"))
+icc_ewpw <- map_dbl(1:100, ~ Subset_mod_icc(DV = "Mass", Species = "Whip-poor-will"))
+Icc_spp <- tibble(Species = c(rep("Nightjar", 100), rep("Whip-poor-will", 100)), Icc = c(icc_euni, icc_ewpw)) %>% 
+  mutate(Icc = round(Icc, 2))
+
+# Plot ICC distribution
+medians_spp <- Icc_spp %>% summarize(median = median(Icc), .by = Species)
+x_axis <-  setNames(c(.48, .51, .54), c('.48', '.51', ".54"))
+icc_dens_plot <- ggplot(Icc_spp, aes(x = Icc, color = Species)) +
+  geom_density(alpha = 0.6) +
+  scale_x_continuous(breaks = x_axis, labels = names(x_axis)) +
+  geom_vline(xintercept = medians_spp$median, linetype = "dashed", 
+             color = colorblind_pal()(8)[c(6,8)]) +
+  scale_color_manual(values = colorblind_pal()(8)[c(6,8)]) + 
+  guides(color = "none") + 
+  annotate("text", x = -Inf, y = Inf, label = "Mass ~ Time since sunset² + \n Latitude + Julian day + \n (1 | Individual)", hjust = -.03, vjust = 1, size = 2.65, fontface = "bold") + 
+  labs(y = "Density")
+icc_dens_plot
+
+# Sample sizes
+Mass_ay %>% slice_head(n = 1, by = Band.Number) %>%
+  pull(Species) %>% 
+  tabyl()
+
+# OPTIONAL:: Add the histogram to Mass_plot
+icc_grob <- ggplotGrob(icc_dens_plot)
+Mass_plot_w_hist <- Mass_plot + 
+  annotation_custom(icc_grob, xmin = as.POSIXct("2024-07-01"), xmax = Inf, ymin = -Inf, ymax = 60) 
+Mass_plot_w_hist
+
+## Extra -- Wing ICC
+icc_w_euni <- map_dbl(1:100, ~ Subset_mod_icc("Wing.Chord", Species = "Nightjar"))
+mean(icc_w_euni) # Much higher, so wing definitely has higher repeatability across years
+icc_w_ewpw <- map_dbl(1:100, ~ Subset_mod_icc("Wing.Chord", Species = "Whip-poor-will"))
+mean(icc_w_ewpw)
+
+## Examine the average (max) difference in wing chord for each individual
+recap2 <- capri.df.int %>%
+  drop_na(Band.Number, Band.md, Wing.Chord) %>%
+  group_by(Band.Number, Year) %>%
+  filter(n() > 1) %>%
+  ungroup() %>%
+  arrange(Band.Number, Band.md)
+
+recap2 %>% select(Band.Number, Year, Wing.Chord, Species) %>% 
+  summarize(difMax = max(Wing.Chord) - min(Wing.Chord), 
+            .by = c(Band.Number, Year, Species)) %>% 
+  arrange(desc(difMax)) %>% 
+  drop_na(difMax) %>% 
+  summarize(mn = mean(difMax), N = n(), .by = Species)
+
+# Fat breeding month -----------------------------------------------------
+# Plot fat change through time
+fat_p1 <- capri.df.int %>% mutate(Fat = as.numeric(Fat)) %>%
+  filter(Fat <= 6) %>% # Remove typos
+  # Rescale Nightjar fat so it is on the same scale as CONI & EWPW
+  mutate( Fat = ifelse(Species == "Nightjar", Fat / (6/5), Fat)) %>%
+  ggplot(aes(x = Band.md, y = Fat, color = Species)) + 
+  geom_smooth() + 
+  geom_point() + 
+  labs(x = "Month", y = "Scaled fat") +
+  geom_vline(xintercept = as.POSIXct(c('2024-05-15','2024-08-01')), 
+             color=colorblind_pal()(8)[6], linetype="dashed") + 
+  scale_color_manual(values = colorblind_pal()(8)[c(4,6,8)])
+fat_p1
+
+# Save plots
+ggarrange(fat_p1, Mass_plot, icc_dens_plot, common.legend = TRUE, labels = "AUTO", nrow = 1)
+ggsave("Plots/Supplementary/Mass_fat_repeatability.png", bg = "white", width = 8.5, height = 5)
+
+# Cooper KIWA recaps ------------------------------------------------------
+
+Kiwa <- read.csv("Data/Raw_Data/Kiwa_Nate_cooper.csv") %>% tibble() 
+
+# Separate by sex
+Kiwa_mf <- Kiwa %>% mutate(First_Fat = as.integer(First_Fat), 
+                         Fat_diff = First_Fat - Second_Fat)
+# Additional subsetting
+Kiwa_m <- Kiwa_mf %>% filter(Sex == "M")
+Kiwa_f <- Kiwa_mf %>% filter(Sex == "F")
+Kiwa_no_fat <- Kiwa_m %>% filter(First_Fat == 0)
+
+# Simple correlation test
+cor.test(Kiwa_no_fat$First_Weight, Kiwa_no_fat$Second_Adj_Weight)
+
+# Run model 
+mod_mf <- lm(scale(Second_Adj_Weight) ~ scale(First_Weight) + scale(Fat_diff), data = Kiwa_mf)
+summary(mod_mf)
+
+# Create new data frames for predictions
+fat_diff_val <- mean(Kiwa_mf$Fat_diff, na.rm = TRUE)
+
+# Create new data frame, holding difference of fat at the mean
+newdata_mf <- Kiwa_mf %>% 
+  mutate(Fat_diff = fat_diff_val) %>% 
+  select(First_Weight, Second_Adj_Weight, Fat_diff, Sex)
+
+# Generate predictions
+newdata_mf[,c(5:7)] <- predict(mod_mf, newdata = newdata_mf, interval = 'confidence')
+ndf_mf <- newdata_mf %>% rename_with(~ c("pred", "lwr", "upr"), starts_with("V"))
+
+# Plot with ggplot2
+ggplot(data = ndf_mf) +
+  geom_line(aes(x = First_Weight, y = pred)) +
+  geom_point(aes(x = First_Weight, y = Second_Adj_Weight, color = Sex)) +
+  geom_ribbon(aes(x = First_Weight, ymin=lwr, ymax=upr), alpha=0.5) +
+  labs(title = "Kirtland warbler mass across the annual cycle",
+       x = "Winter mass (g)",
+       y = "Breeding mass (g)") 
+ggsave("Plots/Supplementary/KIWA_mass_fac.png", bg = "white")
+
 # Stomach -----------------------------------------------------------------
 stomach <- read.csv("Data/Stomach/EvensLathouwers_data_sheet_corrected_stomach.csv") %>% 
   filter(!is.na(Stomach))
@@ -697,9 +918,13 @@ summary(lm(Mass ~ Band.md + B.Lat + Age, data = euni.df)) #poly() gives error fo
 #Suggests we're getting some individuals after they're molting and their wings are a bit longer?
 summary(lm(Wing.Chord ~ Band.md + B.Lat + Age, data = euni.df)) 
 
-#Plotting, Fat ~ band date
+table(capri.df.int$Fat)
+
 #Gabriel's EUNI data 
-euni.df %>% filter(Project == "NASKASWE") %>%
+euni.fat <- euni.df %>% filter(Project == "NASKASWE") %>% 
+  mutate(Fat = as.numeric(Fat)) #Gabriel's EUNI data 
+euni.fat %>% filter(Project == "NASKASWE") %>%
+  filter(Band.md < as.POSIXct("2024-08-01")) %>%
   mutate(Fat = as.numeric(Fat)) %>% 
   ggplot(aes(x = Band.md, y = Fat)) + 
   geom_smooth() + 
@@ -709,7 +934,7 @@ euni.df %>% filter(Project == "NASKASWE") %>%
 
 #Res = residents, 07-30 is final answer
 euni.dfRes <- euni.df %>% 
-  filter(Band.md > as.POSIXct("2023-05-16") & Band.md < as.POSIXct("2023-08-01"))
+  filter(Band.md > as.POSIXct("2024-05-16") & Band.md < as.POSIXct("2024-08-01"))
 
 #Visualize, little to no relationship with band date at this point
 ggplot(data = euni.dfRes, aes(x = Band.md, y = Wing.Chord)) + 
@@ -721,38 +946,13 @@ ggplot(data = euni.dfRes, aes(x = Band.md, y = Mass.comb)) +
   labs(x = "Band date", y = "Mass")
 ggsave("Plots/Supplementary/Mass_band.date.png", bg = "white")
 
-#Visualize EWPW & CONI species data
-capri.df.int %>% filter(Species == "Whip-poor-will") %>% 
-  ggplot(aes(x = Band.md, y = as.numeric(Fat))) + 
-  geom_smooth() + 
-  geom_point() + 
-  ggtitle("EWPW fattening")
-capri.df.int %>% filter(Species == "Nighthawk") %>% 
-  ggplot(aes(x = Band.md, y = as.numeric(Fat))) + 
-  geom_smooth() + 
-  geom_point() + 
-  ggtitle("CONI fattening")
-
-#Visualize EUNI
-euni.df %>% filter(!is.na(Fat)) %>%
-  count(Lat = round(B.Lat,0))
-fat_p1 <- euni.df %>% ggplot(aes(x = Band.md, y = as.numeric(Fat))) + 
-  geom_smooth() + 
-  geom_point() + 
-  labs(x = "Banding date", y = "Fat") +
-  geom_vline(aes(xintercept = 2023-05-19), color="black", linetype="dashed") 
-fat_p2 <- euni.dfRes %>% ggplot(aes(x = Band.md, y = as.numeric(Fat))) + 
+euni.dfRes %>% ggplot(aes(x = Band.md, y = as.numeric(Fat))) + 
   geom_smooth() + 
   geom_point() + 
   labs(x = "Banding date", y = "Fat") + 
-  scale_x_datetime(limits = as.POSIXct(c('2023-05-05','2023-08-01'))) #+
+  scale_x_datetime(limits = as.POSIXct(c('2024-05-05','2024-08-01'))) #+
   #geom_hline(aes(yintercept = 1.3))
 
-ggpubr::ggarrange(fat_p1, fat_p2,
-                  ncol = 2, nrow = 1,
-                  align='hv', labels = c("A","B"),
-                  legend = "none")
-ggsave("Plots/EUNI_fattening.png", bg = "white")
 
 #Some way of seeing sequential variation explained? 
 summary(lm(Mass ~ tsss + B.Lat + Band.md, data = euni.dfRes))

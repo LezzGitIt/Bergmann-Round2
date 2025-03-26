@@ -180,7 +180,7 @@ capri.df2 <- capri.df %>%
 nrow(capri.df2)
 
 # Age classes condense ----------------------------------------------------
-#Caprimulgids reach adult size (at least for feather length) after their second calendar year of life, so we need to condense age classes into Young, Adult, or Unknown
+# Caprimulgids reach adult size (at least for feather length) after their second calendar year of life, so we need to condense age classes into Young, Adult, or Unknown
 
 #Don't run this more than once
 table(capri.df2$Age) #, capri.df$Species)

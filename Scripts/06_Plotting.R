@@ -15,11 +15,12 @@ library(tidyverse)
 library(readxl)
 library(rnaturalearthdata)
 library(rnaturalearth)
-library(rnaturalearthhires)
+#library(rnaturalearthhires)
 library(smoothr)
 library(sf)
 library(ggpubr)
 library(ggrepel)
+library(ggspatial)
 library(ggthemes)
 library(viridis)
 library(terra)
@@ -33,7 +34,7 @@ conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
 
 #load("Rdata/Capri_dfs_07.09.24.Rdata")
-source("/Users/aaronskinner/Library/Mobile Documents/com~apple~CloudDocs/Desktop/Grad_School/Rcookbook/Themes_funs.R")
+source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookbook/Themes_funs.R")
 
 #Fig2: Breeding map ------------------------------------------------------------
 ##Summarize breeding locations spatially##
@@ -287,9 +288,14 @@ pred.dfs <- map2(.x = top.lms[c(1,3,5)], .y = spp.dfs, .f = \(lm, df)
 
 # >Make map ---------------------------------------------------------------
 pred.map <- list()
-pred.map <- map(seq_along(Spp$Long), \(i){
-  bbox <- st_bbox(c(xmin = min(pred.dfs[[i]]$B.Long), xmax = max(pred.dfs[[i]]$B.Long), 
-                    ymin = min(pred.dfs[[i]]$B.Lat), ymax = max(pred.dfs[[i]]$B.Lat))) 
+legend.pos <- c("br" ,"tr", "tr")
+pred.map <- map2(seq_along(Spp$Long), legend.pos, \(i, pos){
+  bbox <- st_bbox(c(xmin = min(pred.dfs[[i]]$B.Long), 
+                    xmax = max(pred.dfs[[i]]$B.Long), 
+                    ymin = min(pred.dfs[[i]]$B.Lat), 
+                    ymax = max(pred.dfs[[i]]$B.Lat))) 
+  # Adjust scale of 
+  if(i == 2){bbox[c(1,3)] <- bbox[c(1,3)] + c(0, -15) }
   ggplot(data = pred.dfs[[i]]) +
     geom_polygon(data=world, aes(x=long, y=lat, group=group), 
                  fill="gray80", colour = "gray80", size=0.3) +
@@ -302,19 +308,18 @@ pred.map <- map(seq_along(Spp$Long), \(i){
                       stroke = 0.1, check_overlap = TRUE, 
                       min.size = 60, skip = 0, rotate = FALSE,
                       label.placer = label_placer_fraction(frac = 0.5)) +
-    coord_sf(xlim = bbox[c(1,3)], ylim = bbox[c(2,4)], expand = FALSE, crs=4326) +
-    scale_fill_viridis_c(option = "magma", 
-                         name = "Mass (g)") + 
+    coord_sf(
+      xlim = bbox[c(1,3)], ylim = bbox[c(2,4)], expand = FALSE, crs=4326
+      ) + scale_fill_viridis_c(option = "magma", name = "Mass (g)") + 
     map.theme +
     #labs(title = Spp$Long[i])
-    theme(legend.position = "none")
+    theme(legend.position = "none") + 
+    ggspatial::annotation_scale(location = pos)
 })
 
 #Note NULLs and widths of 0 don't alter this figure at all, but this is how you would adjust the spacing between plots if needed
-isocline.fig <- ggarrange(pred.map[[1]], NULL, pred.map[[2]], NULL, pred.map[[3]], 
-                          nrow = 1, widths = c(1, 0, 1, 0, 1))
-ggsave(paste0("Plots/Final/Isocline/isoclines_fig", format(Sys.Date(), "%m.%d.%y"), ".png"), 
-              bg = "white", height = 2.93, width = 8.5)
+isocline.fig <- ggarrange(pred.map[[1]], NULL, pred.map[[2]], NULL, pred.map[[3]], nrow = 1, widths = c(1, 0, 1.2, 0, 1))
+ggsave(paste0("Plots/Final/Isocline/isoclines_fig", format(Sys.Date(), "%m.%d.%y"), ".png"), bg = "white", height = 2.93, width = 8.5)
 
 # Fig4: Parm estimates plot -----------------------------------------------------
 #For whatever reason the order of explanatory vars is changed when excel is uplaoded here
