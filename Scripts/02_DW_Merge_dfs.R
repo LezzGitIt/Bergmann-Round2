@@ -21,8 +21,10 @@ conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
 
-#1. Filter capriBA ---------------------------------------------------------------
-capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.03.24.xlsx", trim_ws = TRUE) %>%
+#1. Filter capriBA --------------------------------------------------------
+
+capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.13.25.xlsx", 
+                     trim_ws = TRUE) %>%
   mutate(Banding.Time = chron(times = Banding.Time))
 nrow(capriBA)
 
@@ -34,12 +36,19 @@ capriBAnr <- capriBA %>% group_by(Band.Number) %>% #nr = no repeats
   slice_head() %>% 
   ungroup()
 
-#Filter based on date
-euniRes <- capriBAnr %>% filter(Species == "Nightjar" & Band.md > as.POSIXct("2024-05-16") & Band.md < as.POSIXct("2024-08-01") & is.na(W.Lat))
+## Filter European nightjar based on date
+# All years = present year
+Year <- format(Sys.Date(), "%Y")
+
+# Res = residents
+euniRes <- capriBAnr %>% filter(Band.md > as.POSIXct(paste0(.env$Year,"-05-16")) & Band.md < as.POSIXct(paste0(.env$Year, "-08-01")) & is.na(W.Lat))
+# Maintain all birds with winter latitude
 euniFAC <- capriBAnr %>% filter(Species == "Nightjar" & !is.na(W.Lat))
-coni.ewpw <- capriBAnr %>% filter(Species != "Nightjar" & Band.md > as.POSIXct("2024-04-30")) 
+coni.ewpw <- capriBAnr %>% filter(Species != "Nightjar" & Band.md > as.POSIXct(paste0(Year, "-04-30"))) 
+
+# Bind together data frames
 capriRes <- rbind(euniRes, euniFAC, coni.ewpw)
-nrow(capriRes) #capri residents
+nrow(capriRes)
 
 #Remove last few things#
 #Remove Greg's EDB project due to lack of precision in decimals, Unknown sex, and year < 2010.
@@ -51,7 +60,7 @@ euni.fin <- capri.fin %>% filter(Species == "Nightjar")
 #2. Merge -------------------------------------------------------------------
 #Link capri.fin with EnviCovs
 #Bring in EnviCovs2
-EnviCovs2 <- read_xlsx("Intermediate_products/Envi_Covs_07.03.24.xlsx")
+EnviCovs2 <- read_xlsx("Intermediate_products/Envi_Covs_07.13.25.xlsx")
 
 EnviCovs3 <- EnviCovs2 %>% select(-c(Species, Banding.Date, Band.Number))
 capriA <- capri.fin %>% left_join(EnviCovs3, by = "uniqID") #"uniqID" #capri Analysis
@@ -203,7 +212,7 @@ i <- c(1,3,5)
 #map(i, plot_and_save)
 
 # 10. Export -------------------------------------------------------------
-#capriA.red2 %>% as.data.frame() %>%
+capriA.red2 %>% as.data.frame() #%>%
  #write.xlsx(paste0("Intermediate_products/capriA.red_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
 
 #capri.fac %>% as.data.frame() %>%

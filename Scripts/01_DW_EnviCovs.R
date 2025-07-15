@@ -16,11 +16,9 @@ conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
 
-#load("Data/EnviCovs_script.Rdata")
-
-capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.03.24.xlsx", trim_ws = TRUE) %>%
+capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.13.25.xlsx",
+                      trim_ws = TRUE) %>%
   mutate(Banding.Time = chron(times = Banding.Time))
-?read_xlsx
 
 ##Bring in data sets (or load .Rdata file)
 wc <- read.csv("Data/EK_Envi_Vars/Covs_12.24.23/Wordclim-Buffer.csv")
@@ -93,8 +91,8 @@ EnviCovs2 <- EnviCovs %>% inner_join(capriBA[,c("uniqID", "Band.Number", "Bandin
 nrow(EnviCovs2) 
 
 # Export ------------------------------------------------------------------
-#EnviCovs2 %>% as.data.frame() %>%
- # write.xlsx(paste0("Intermediate_products/Envi_Covs_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
+EnviCovs2 %>% as.data.frame() #%>%
+  #write.xlsx(paste0("Intermediate_products/Envi_Covs_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
 
 
 #Notes on MDR

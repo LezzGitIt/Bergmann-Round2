@@ -118,10 +118,14 @@ capri.df <- rbind(njdfs_all[[1]], njdfs_all[[2]], njdfs_all[[3]],njdfs_all[[4]],
 #lapply(njdfs_all, function(x){head(x$Banding.Date)})
 #lapply(njdfs_all, function(x){parse_date_time(x[,c("Banding.Date")], c("mdy", "ymd"))})
 
-#Export for repository
-capri.df %>% filter(Project != "Greg_EDB") %>%
-  select(-Project) %>% 
-  write.xlsx(paste0("../../Writtens/Final_GEB/Repository/Data/Capri_df_combined_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = FALSE, showNA = FALSE, sheetName = "Data")
+# >Export for repository ---------------------------------------------------
+
+nrow(capri.df) 
+if(FALSE){
+  capri.df %>% filter(Project != "Greg_EDB") %>%
+    select(-Project) %>% 
+    write.xlsx(paste0("../../Repository 2/Data/Capri_df_combined_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = FALSE, showNA = FALSE, sheetName = "Data")
+}
 
 # Format ------------------------------------------------------------------
 #Adjust time & date
@@ -130,7 +134,7 @@ capri.df <- capri.df %>% #Few individuals removed w/ no B.Lat
   replace_with_na_all(condition = ~.x %in% c(-99,-990, 9999, "<NA>", "-", ".", "na", 'NONABAND')) %>% 
   as.data.frame() %>% 
   filter(!is.na(B.Lat) & !is.na(Band.Number))
-nrow(capri.df) 
+
 capri.df <- capri.df %>% 
   mutate(Species = ifelse(capri.df$Species == "Ceur" | capri.df$Species == "European Nightjar" | capri.df$Species == "European Nigthtjar", "EUNI", capri.df$Species), 
          Band.Number = stri_replace_all_regex(capri.df$Band.Number,
@@ -160,10 +164,16 @@ capri.df %>% select(Project, Year) %>%
 #Format times & dates, data types#
 capri.df[,c("Wing.Chord","Mass", "B.Lat", "B.Long", "W.Lat", "W.Long", "Mig.dist", "Year")] <- lapply(capri.df[,c("Wing.Chord","Mass","B.Lat", "B.Long", "W.Lat", "W.Long", "Mig.dist", "Year")], as.numeric)
 capri.df[c("Banding.Date", "B.dep", "W.arr")] <- lapply(capri.df[c("Banding.Date", "B.dep", "W.arr")], parse_date_time, c("mdy", "ymd")) 
-#Create month day (all years = 2023) for understanding timing
+
+## Create month day (all years = 2023) for understanding timing
 capri.df[,c("Band.md","Bdep.md", "Warr.md")] <- lapply(capri.df[,c("Banding.Date", "B.dep", "W.arr")], format, "%m/%d")
 capri.df[,c("Band.md","Bdep.md", "Warr.md")] <- lapply(capri.df[,c("Band.md","Bdep.md", "Warr.md")], as.Date, "%m/%d")
-capri.df$Warr.md <- zoo::as.Date(ifelse(capri.df$Warr.md < as.POSIXct("2023-04-01"), capri.df$Warr.md + lubridate::years(1), capri.df$Warr.md)) 
+
+# All years = present year
+Year <- format(Sys.Date(), "%Y")
+Year
+# Add a year to maintain correct temporal distance (present year + 1)
+capri.df$Warr.md <- zoo::as.Date(ifelse(capri.df$Warr.md < as.POSIXct(paste0(Year,"-04-01")), capri.df$Warr.md + lubridate::years(1), capri.df$Warr.md))
 
 #CHECK::Are there individuals banded during the day? Do they have wintering information? 
 day.caps <- capri.df %>% 
@@ -233,12 +243,13 @@ for(i in 1:length(tzs)){
   #sunsets[[i]] <- getSunlightTimes(data = dftz)$sunset
   dftz[[i]]$sunset <- getSunlightTimes(data=dftz[[i]], keep="sunset", tz=tzs[i])$sunset
 }
-#CHECK:: Ensure sunset times are reasonable
-sun_df %>% arrange(format(sun_df$sunset, format = "%H:%M:%S")) %>% pull(sunset)
 
 #Force the sunset column to be in UTC timezone. This allows for correct calculation of tsss b/c the banding times are assumed to be in UTC (we don't specify their actual tz)
 dftz <- lapply(dftz, function(x){ force_tz(x, "UTC")})
 sun_df <- bind_rows(dftz) 
+
+#CHECK:: Ensure sunset times are reasonable
+sun_df %>% arrange(format(sun_df$sunset, format = "%H:%M:%S")) %>% pull(sunset)
 
 #Subtract a day from sunset time if bird was caught early in the AM 
 sun_df2 <- sun_df %>% mutate(sunset = as_datetime(ifelse(hms(Banding.Time) < hms("09:00:00"), 

@@ -28,7 +28,6 @@ conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
 ggplot2::theme_set(theme_cowplot())
 
-#load("Rdata/Capri_dfs_07.09.24.Rdata")
 source("/Users/aaronskinner/Library/Mobile Documents/com~apple~CloudDocs/Desktop/Grad_School/Rcookbook/Themes_funs.R")
 
 capri.df.int <- read_xlsx("Intermediate_products/capri.df.int_07.03.24.xlsx", trim_ws = TRUE) %>%
@@ -918,7 +917,7 @@ summary(lm(Mass ~ Band.md + B.Lat + Age, data = euni.df)) #poly() gives error fo
 #Suggests we're getting some individuals after they're molting and their wings are a bit longer?
 summary(lm(Wing.Chord ~ Band.md + B.Lat + Age, data = euni.df)) 
 
-table(capri.df.int$Fat)
+
 
 #Gabriel's EUNI data 
 euni.fat <- euni.df %>% filter(Project == "NASKASWE") %>% 

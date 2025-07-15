@@ -8,7 +8,7 @@
 # 3) Examine residuals of top models to ensure model assumptions are met
 # 4) Conduct model averaging and extract parameter coefficients from important models
 
-#NOTE:: There are two places where one must manually change the input depending on if using just adult males or the full annual cycle data set (see manuscript for more details). These are indicated with the following text: 'CHANGE FAC DATA SET HERE IF DOING ADULT MALES'
+#NOTE:: There are two places where one must manually change the input depending on if using just adult males or the full annual cycle data set (see manuscript for more details). Search 'CHANGE FAC DATA SET HERE IF DOING ADULT MALES' and change dataset manually
 
 # Libraries & load key dfs ------------------------------------------------
 library(AICcmodavg)
@@ -27,7 +27,8 @@ conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
 
-load("Rdata/Capri_dfs_07.09.24.Rdata")
+#load("Rdata/Capri_dfs_07.09.24.Rdata")
+load("Rdata/Capri_dfs_07.13.25.Rdata")
 
 # Nuis vars mod selection -----------------------------------------------
 #Goal is to examine the impact of nuisance variables Age, sex, and time since sunset (tsss; only on Mass) for each Spp * DV combination. We include tsss as a quadratic variable based on visualization (see Data exploration.R script)
@@ -680,7 +681,8 @@ parm.df.form <- parm.df %>%
 parm.df.form %>% filter(Data.set == "Br" & Parameter == "Elevation") %>% 
   arrange(desc(abs(Beta)))
 
-parm.tbl.print <- parm.df.form %>% select(-c(Season, Important85, LCI95, UCI95)) %>% 
+parm.tbl.print <- parm.df.form %>% 
+  select(-c(Season, Important85, LCI95, UCI95)) %>% 
   arrange(Species, DV, desc(Beta)) %>%
   mutate(Hypothesis = str_replace_all(Hypothesis, pattern = c("Geo" = "Geographic pattern", "Mig.Dist" = "Migratory Distance", "TR" = "Temperature Regulation", "Seas" = "Seasonality", "Prod" = "Productivity")),
          Data.set = case_when(
