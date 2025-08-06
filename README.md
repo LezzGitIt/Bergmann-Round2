@@ -1,59 +1,35 @@
 # Evaluation of Bergmann's Rule in Migratory Nightjars
 
-This repository contains updated and additional code associated with the paper *"Environmental pressures on the breeding grounds drive Bergmannian clines in nightjars* (in review at the Journal of Biogeography). The study investigates whether three migratory nightjar species conform to Bergmann's rule, and explores the environmental and geographical factors influencing body size across their breeding and wintering grounds. The study uses GPS tracking data to assess competing hypotheses explaining variation in body size for each species, based on their breeding and wintering locations.
+## Manuscript information
 
-## Overview
+**Journal:** Journal of Biogeography
 
-This repository contains the full code for the project, which contains additional scripts that were used for data exploration and model validation. If interested in reproducing the analysis associated with *"Environmental pressures on the breeding grounds drive Bergmannian clines in nightjars"*, see this Dryad link [LINK AVAILABLE UPON PUBLICATION].
+**Title:** Environmental and geographic conditions on the breeding grounds drive Bergmannian clines in Nightjars
 
-**Research Questions**:
-- Do migratory nightjar species adhere to Bergmann's rule across their migratory ranges?
-- How do environmental factors at breeding and wintering sites influence body size in these species?
-- What are the key mechanistic hypotheses that explain Bergmannian patterns in body size?
+**Authors:** Aaron A Skinner, Alicia M Korpach, Susanne Åkesson, Marja H Bakermans, Erin M Bayne, Thomas J. Benson, Giovanni Boano, R Mark Brigham, Simon S Christiansen, Greg J Conway, Christina M Davy, Ruben Evens, Kevin C Fraser, Autumn-Lynn Harrison, Anders Hedenström, Ian G Henderson, Juha Honkala, Lars B Jacobsen, Michiel Lathouwers, Peter P Marra, Janet W Ng, Gabriel Norevik, Amy L Scarpignato, Kasper Thorup, Christopher Tonra, Steven L Van Wilgenburg, Andrew C Vitz, Michael Ward, and Elly Knight
 
-## Methods
+**Associated files:** 
 
-- **Data**: Morphometric data from >3,000 nightjars, and GPS tracking data from 189 individual birds
-- **Analysis**: Linear models, AIC model selection, model averaging 
+- Manuscript: https://onlinelibrary.wiley.com/doi/abs/10.1111/jbi.15176
+- Dryad repo: The data associated with this manuscript can be found at [INSERT FINAL DRYAD LINK]
 
-## Usage
+## Abstract 
+We assembled a cross-continental dataset from 29 researchers to assess 1) whether three species of migratory nightjars (Family Caprimulgidae) adhere to Bergmann's rule, 2) if environmental factors on the breeding grounds or wintering grounds determine body size, and 3) which mechanistic hypotheses best explains Bergmannian patterns in body size. We captured 7,318 Caprimulgids (3,388 entered final analysis) using mist nets and conspecific playback across North America and Europe, a subset of 215 which were equipped with telemetry tags to obtain winter locations. We tested several mechanistic hypotheses that could explain Bergmannian clines across the annual cycle, thus birds have morphological measurements (mass and wing length), migratory distance, and environmental variables associated with breeding and winter locations. See methods and supporting information of the associated manuscript for additional information.
 
-### Requirements
+### Species
+
+Eastern whip-poor-will (*Antrostomus vociferus*), Common nighthawk (*Chordeiles minor*), and European nightjar (*Caprimulgus europaeus*)
+
+# Usage
+
+## Instructions
+
+All necessary code is provided to reproduce all analyses, figures, and tables in the main text of the manuscript ('Scripts/Final_JBI' folder). I recommend accessing the Dryad repo (link above) as the repo provides the necessary file structure, definitions of all columns in the data, etc. This repository **does** contain the version history of all scripts ('Scripts/Development' folder).
+
+## Requirements
 
 - R (version 4.0 or higher)
 - Required R packages: R packages are called at the top of every script 
-
-### How to Run
-
-To reproduce the analysis associated with *"Environmental pressures on the breeding grounds drive Bergmannian clines in nightjars"*
-
-1. Download the data and scripts from Dryad [LINK AVAILABLE UPON PUBLICATION]
-
-2. Install required R packages:
-    ```R
-  packages <- c(
-  "tidyverse", "readxl", "xlsx", "chron", "gridExtra", "mvnormtest", "janitor", 
-  "broom.mixed", "ggrepel", "ggthemes", "viridis", "AICcmodavg", "lme4", "nlme", 
-  "sf", "smatr", "scales", "geoR", "cowplot", "adespatial", "spdep", "ggpubr", 
-  "sp", "naniar", "stringi", "sjPlot", "broom", "mapview", "conflicted", 
-  "rnaturalearthdata", "rnaturalearth", "rnaturalearthhires", "smoothr", "terra", 
-  "metR", "raster", "MuMIn"
-)
-install.packages("requiRements")
-requiRements::install(packages)
-    ```
-    
-3. Load the scripts and run to reproduce the analysis and all figures in the main text:
-    ```R
-script_files <- list.files(path = "Scripts", pattern = "\\.R$", full.names = TRUE)
-map(script_files, \(files){
- source(files)
- })
-    ```
-
-## Data
-
-The data and code needed to reproduce all analyses, figures, and tables in the main text of the manuscript are available on Dryad (LINK AVAILABLE UPON PUBLICATION). The collation of this rich morphological dataset with information across the annual cycle is the most complete for Caprimulgids to date. We would be interested in future collaborations using these data. 
 
 ## License
 
