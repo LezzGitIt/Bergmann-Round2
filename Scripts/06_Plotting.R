@@ -39,7 +39,7 @@ source("/Users/aaronskinner/Library/CloudStorage/OneDrive-UBC/Grad_School/Rcookb
 
 # Fig2: Breeding map ------------------------------------------------------------
 ## Summarize breeding locations spatially##
-capriA.sf <- capriA.red2 %>%
+capriA.sf <- capri_analysis %>%
   mutate(B.Lat = mround(B.Lat, .25), B.Long = mround(B.Long, .5)) %>%
   count(Species, B.Lat, B.Long, sort = T) %>%
   st_as_sf(coords = c("B.Long", "B.Lat"), crs = 4326, remove = FALSE)
@@ -134,14 +134,14 @@ plot.boxplot <- function(df, Species1, var, flip = FALSE) {
 
 # Latitude boxplot
 boxp.Lat <- lapply(Spp$Short, function(species) {
-  plot.boxplot(df = capriA.red2, Species1 = species, var = "B.Lat") +
+  plot.boxplot(df = capri_analysis, Species1 = species, var = "B.Lat") +
     theme(plot.margin = margin(0, 0, 0, 0))
 })
 
 
 # Longitude boxplot
 boxp.Long <- lapply(Spp$Short, function(species) {
-  plot.boxplot(df = capriA.red2, Species1 = species, var = "B.Long", flip = TRUE) +
+  plot.boxplot(df = capri_analysis, Species1 = species, var = "B.Long", flip = TRUE) +
     theme(plot.margin = margin(0, 0, 0, 0))
 })
 

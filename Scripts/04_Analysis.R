@@ -58,7 +58,7 @@ aictabNuis <- map2(.x = candNuis, .y = NamesNuis,
 aictabNuis2 <- map(aictabNuis, ~distinct(.x, K, AICc, AICcWt, LL, .keep_all = TRUE))
 
 #Examine impact of age in the ~50 nighthawks that were aged
-coni.age <- capriA.red2 %>% filter(Species == "Nighthawk" & Age != "Unk")
+coni.age <- capri_analysis %>% filter(Species == "Nighthawk" & Age != "Unk")
 summary(lm(Mass.combBT ~ B.Lat + Age, coni.age))
 summary(lm(Wing.comb ~ B.Lat + Age, coni.age))
 

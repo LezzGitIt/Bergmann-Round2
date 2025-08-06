@@ -12,11 +12,12 @@ library(tidyverse)
 library(readxl)
 library(xlsx)
 library(chron)
+library(conflicted)
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
 
-capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.13.25.xlsx",
+capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.25.25.xlsx",
                       trim_ws = TRUE) %>%
   mutate(Banding.Time = chron(times = Banding.Time))
 
@@ -28,7 +29,8 @@ elev <- read.csv("Data/EK_Envi_Vars/Covs_12.24.23/DEM-Buffer.csv")
 
 # Elevation format  -------------------------------------------------------
 #NOTE: Elevation df is structured differently
-elev2 <- elev %>% mutate(Season_abb = ifelse(season == "Breed", "B.", "W.")) %>% 
+elev2 <- elev %>% 
+  mutate(Season_abb = ifelse(season == "Breed", "B.", "W.")) %>% 
   dplyr::select(uniqID, Season_abb, mean) %>% 
   group_by(uniqID) %>% 
   pivot_wider(names_from = Season_abb, names_glue = "{Season_abb}Elev", values_from = mean) #Notice names glue so season starts the name
@@ -84,17 +86,19 @@ names(dfs) <- c("br.wc", "wi.wc", "br.evi", "wi.evi", "br.tc", "wi.tc", "elev")
 #dfs <- lapply(dfs, function(x){setNames(x, Spp)}) Not necessary
 dfs <- lapply(dfs, bind_rows)
 EnviCovs <- dfs %>% purrr::reduce(full_join, by = "uniqID") %>% 
-  mutate(across(where(is.numeric), round, 3))
+  mutate(across(where(is.numeric), round, 3),
+         uniqID = str_replace(uniqID, " ", ""))
 
-#Join with Envi Covs df w/ a few key identifier variables from njdf & export
-EnviCovs2 <- EnviCovs %>% inner_join(capriBA[,c("uniqID", "Band.Number", "Banding.Date", "Species")], by = "uniqID") 
+#Join with Envi Covs df w/ a few key identifier variables from njdf
+EnviCovs2 <- EnviCovs %>% 
+  inner_join(capriBA[,c("uniqID", "Band.Number", "Banding.Date", "Species")], by = "uniqID") 
 nrow(EnviCovs2) 
 
 # Export ------------------------------------------------------------------
-EnviCovs2 %>% as.data.frame() #%>%
-  #write.xlsx(paste0("Intermediate_products/Envi_Covs_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
+EnviCovs2 %>% as.data.frame() %>%
+  write.xlsx(paste0("Intermediate_products/Envi_Covs_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
+nrow(EnviCovs2)
 
-
-#Notes on MDR
-#MDR = mean diurnal range, BIO2. Many of these are similar to the 19 worldclim vars. Notice particularly that BrTcv is not equivalent to using the cv function (i.e compCV = cv(tavg, na.rm = T) produces slightly different results). 
-#Should MDR go into seasonality or temp regulation... Elly & I think TR, b/c seasonality is ACROSS the entirety of the season, MDR is within each month.
+# Notes on MDR
+# MDR = mean diurnal range, BIO2. Many of these are similar to the 19 worldclim vars. Notice particularly that BrTcv is not equivalent to using the cv function (i.e compCV = cv(tavg, na.rm = T) produces slightly different results). 
+# Should MDR go into seasonality or temp regulation... Elly & I think TR, b/c seasonality is ACROSS the entirety of the season, MDR is within each month.

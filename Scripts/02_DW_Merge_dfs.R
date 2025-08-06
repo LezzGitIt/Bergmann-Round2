@@ -17,13 +17,14 @@ library(xlsx)
 library(chron)
 library(gridExtra)
 library(mvnormtest)
+library(conflicted)
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(purrr::map)
 
 #1. Filter capriBA --------------------------------------------------------
 
-capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.13.25.xlsx", 
+capriBA <- read_xlsx("Intermediate_products/Capri_BA_07.25.25.xlsx", 
                      trim_ws = TRUE) %>%
   mutate(Banding.Time = chron(times = Banding.Time))
 nrow(capriBA)
@@ -41,7 +42,8 @@ capriBAnr <- capriBA %>% group_by(Band.Number) %>% #nr = no repeats
 Year <- format(Sys.Date(), "%Y")
 
 # Res = residents
-euniRes <- capriBAnr %>% filter(Band.md > as.POSIXct(paste0(.env$Year,"-05-16")) & Band.md < as.POSIXct(paste0(.env$Year, "-08-01")) & is.na(W.Lat))
+euniRes <- capriBAnr %>% 
+  filter(Species == "Nightjar" & Band.md > as.POSIXct(paste0(.env$Year,"-05-16")) & Band.md < as.POSIXct(paste0(.env$Year, "-08-01")) & is.na(W.Lat))
 # Maintain all birds with winter latitude
 euniFAC <- capriBAnr %>% filter(Species == "Nightjar" & !is.na(W.Lat))
 coni.ewpw <- capriBAnr %>% filter(Species != "Nightjar" & Band.md > as.POSIXct(paste0(Year, "-04-30"))) 
@@ -60,10 +62,10 @@ euni.fin <- capri.fin %>% filter(Species == "Nightjar")
 #2. Merge -------------------------------------------------------------------
 #Link capri.fin with EnviCovs
 #Bring in EnviCovs2
-EnviCovs2 <- read_xlsx("Intermediate_products/Envi_Covs_07.13.25.xlsx")
+EnviCovs2 <- read_xlsx("Intermediate_products/Envi_Covs_07.25.25.xlsx")
 
 EnviCovs3 <- EnviCovs2 %>% select(-c(Species, Banding.Date, Band.Number))
-capriA <- capri.fin %>% left_join(EnviCovs3, by = "uniqID") #"uniqID" #capri Analysis
+capriA <- capri.fin %>% left_join(EnviCovs3, by = "uniqID") #capri Analysis
 
 #3. Remove superflous columns -----------------------------------------------
 #Can add in 'Post.Hoc' model (Temp + Prec) here 
@@ -78,17 +80,19 @@ names(HypVars) <- c("Geo", "TR", "Prod", "Seas", "Mig.Dist") #"Post.Hoc"
 HypVarsDf <- bind_rows(HypVars, .id = "Hypothesis")
 HypVarsDf <- HypVarsDf %>% mutate(Full = c("Latitude", "Longitude", "Elevation", "Solar radiation", "Temperature", "EVI", "Precipitation", "EVI CV", "Precipitation CV", "Temperature CV", "Migratory distance")) #"Temperature", "Precipitation"
 
+# Analysis file reduced to include only important variables
 capriA.red <- capriA %>% select(c("uniqID","Band.Number","Project", "Site.name", "Species","Age","Sex", "tsss.comb", "Wing.comb", "Mass.combBT", "Mass.comb", "Mig.dist", paste0("B.", HypVarsDf$Vars[1:10]), paste0("W.", HypVarsDf$Vars[1:10])))
 
-#Remove a few coastal individuals (from breeding grounds) that have no environmental data 
-capriA.red2 <- capriA.red %>% drop_na(starts_with("B")) 
+# Remove a few coastal individuals (from breeding grounds) that have no environmental data 
+capri_analysis <- capriA.red %>% drop_na(starts_with("B")) 
 
-capri.fac <- capriA.red2 %>% filter(!is.na(W.Lat))
+# Create full annual cycle dataset by filtering on wintering latitude
+capri.fac <- capri_analysis %>% filter(!is.na(W.Lat))
 nrow(capri.fac)
-#Of FAC data: 9 wing NAs, 2 massBT NAs, 3 Mig dist NAs
+# NOTE: Of FAC data there are 9 wing NAs, 2 massBT NAs, 3 Mig dist NAs
 capri.fac %>% filter_all(any_vars(is.na(.)))
 
-# 4.  Subset breeding dfs list --------------------------------------------------
+# 4. Subset breeding dfs list -----------------------------------------------
 #Subsetted dfs based on species & DV, these dfs will be used in future analysis script
 subset.df <- function(df, spp, var){
   df %>% filter(Species == spp & !is.na(.data[[var]]))
@@ -101,7 +105,7 @@ loopSppDV <- expand.grid(Species = c("Nighthawk", "Whip-poor-will", "Nightjar"),
 
 njdf.list.br.ns <- list()
 for(i in 1:nrow(loopSppDV)){
-  njdf.list.br.ns[[i]] <- subset.df(capriA.red2, spp = loopSppDV[i, "Species"], var = loopSppDV[i, "DV"])
+  njdf.list.br.ns[[i]] <- subset.df(capri_analysis, spp = loopSppDV[i, "Species"], var = loopSppDV[i, "DV"])
 }
 names(njdf.list.br.ns) <- paste0(loopSppDV[,"Species"], "_", loopSppDV[,"DV"])
 
@@ -159,7 +163,7 @@ mshapiro.test(t(test))
 #Conclusion is that we should use the spearman correlation
 
 # 9. Correlation plots ---------------------------------------------------
-namesEC <- names(capriA.red2)
+namesEC <- names(capri_analysis)
 namesECb <- c(namesEC[str_detect(namesEC, "^B\\.")], "Mig.dist")
 namesECw <- c(namesEC[str_detect(namesEC, "^W\\.")], "Mig.dist")
 #Create df to loop through function
@@ -181,7 +185,7 @@ select_spp_sea <- function(df, Spp, Season){
 panel <- paste0(LETTERS[1:6], ")")
 Corr.plots <- list()
 for(i in 1:nrow(loop_spp_sea)){
-  df_spp_sea <- select_spp_sea(capriA.red2, loop_spp_sea[i,1], loop_spp_sea[i,2])
+  df_spp_sea <- select_spp_sea(capri_analysis, loop_spp_sea[i,1], loop_spp_sea[i,2])
   cor.mat <- round(cor(df_spp_sea, use = "complete.obs", method = "spearman"), 2)
   Corr.plots[[i]] <- GGally::ggcorr(data = NULL, cor_matrix = cor.mat, label = T, 
                                     label_size = 2, label_round = 2, hjust = 0.75, size = 3,
@@ -212,11 +216,18 @@ i <- c(1,3,5)
 #map(i, plot_and_save)
 
 # 10. Export -------------------------------------------------------------
-capriA.red2 %>% as.data.frame() #%>%
- #write.xlsx(paste0("Intermediate_products/capriA.red_", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
+if(FALSE){
+  # Breeding dataset
+  capri_analysis %>% select(-c(uniqID, Mass.comb)) %>%
+    as.data.frame() %>%
+    write.xlsx(paste0("Intermediate_products/capri_analysis", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F, showNA = FALSE)
+  
+  # Full annual cycle dataset
+  capri.fac %>% select(-c(uniqID, Mass.comb)) %>%
+    as.data.frame() %>%
+    write.xlsx(paste0("Intermediate_products/capri_fac", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F, showNA = FALSE) 
+}
 
-#capri.fac %>% as.data.frame() %>%
- # write.xlsx(paste0("Intermediate_products/capri_fac", format(Sys.Date(), "%m.%d.%y"), ".xlsx"), row.names = F)
-
-#rm(list= ls()[!(ls() %in% c("njdf.list.br", "njdf.list.br.ns", "njdf.list.fac", "njdf.l.br.age", "njdf.br.am", "capriA.red2", 'capri.fac', "HypVars", "HypVarsDf", "loopSppDV"))])
+# Export Rdata file
+#rm(list= ls()[!(ls() %in% c("njdf.list.br", "njdf.list.br.ns", "njdf.list.fac", "njdf.l.br.age", "njdf.br.am", "capri_analysis", 'capri.fac', "HypVars", "HypVarsDf", "loopSppDV"))])
 #save.image(paste0("Rdata/Capri_dfs_", format(Sys.Date(), "%m.%d.%y"), ".Rdata"))
